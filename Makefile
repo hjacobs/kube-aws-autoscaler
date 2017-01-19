@@ -13,7 +13,7 @@ test:
 	tox
 
 docker: scm-source.json
-	docker build --build-arg "VERSION=$(VERSION)" -t "$(IMAGE):$(TAG)" .
+	docker build -t "$(IMAGE):$(TAG)" .
 	@echo 'Docker image $(IMAGE):$(TAG) can now be used.'
 
 push: docker
