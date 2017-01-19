@@ -8,3 +8,4 @@ dist/
 scm-source.json
 .cache/
 .coverage
+*.bak
