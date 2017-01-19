@@ -24,4 +24,44 @@ This hack was created as a proof of concept and born out of frustration with the
 * the code is quite complex
 
 
+Usage
+=====
+
+Create the necessary IAM role (to be used by ``kube2iam`` if you have it deployed):
+
+* Modify ``deploy/cloudformation.yaml`` and change the AWS account ID and the worker node's role name as necessary.
+* Create the Cloud Formation stack from ``deploy/cloudformation.yaml``.
+
+Deploy the autoscaler to your running cluster:
+
+.. code-block:: bash
+
+    $ kubectl apply -f deploy/deployment.yaml
+
+See below for optional configuration parameters.
+
+
+Configuration
+=============
+
+The following command line options are supported:
+
+``--buffer-cpu-percentage``
+    Extra CPU requests % to add to calculation, defaults to 10%.
+``--buffer-memory-percentage``
+    Extra memory requests % to add to calculation, defaults to 10%.
+``--buffer-pods-percentage``
+    Extra pods requests % to add to calculation, defaults to 10%.
+``--buffer-cpu-fixed``
+    Extra CPU requests to add to calculation, defaults to 1 (core).
+``--buffer-memory-percentage``
+    Extra memory requests to add to calculation, defaults to 200Mi.
+``--buffer-pods-percentage``
+    Extra number of pods to overprovisin for, defaults to 10.
+``--interval``
+    Time to sleep between runs in seconds, defaults to 60 seconds.
+``--once``
+    Only run once and exit (useful for debugging).
+
+
 .. _"official" cluster-autoscaler: https://github.com/kubernetes/contrib/tree/master/cluster-autoscaler
