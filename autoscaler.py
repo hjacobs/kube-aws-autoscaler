@@ -134,6 +134,10 @@ def autoscale():
         asg_name, zone = key
         logger.info('{}/{}: current nodes: {}'.format(asg_name, zone, len(nodes)))
         requested = usage_by_asg_zone.get(key)
+        pending = usage_by_asg_zone.get(('unknown', 'unknown'))
+        if pending:
+            for resource, val in pending.items():
+                requested[resource] += val
         logger.info('{}/{}: requested resources: {}'.format(asg_name, zone, requested))
         requested_with_buffer = apply_buffer(requested)
         logger.info('{}/{}: requested with buffer: {}'.format(asg_name, zone, requested_with_buffer))
@@ -149,10 +153,25 @@ def autoscale():
         logger.info('{}/{}: required nodes: {}'.format(asg_name, zone, required_nodes))
         asg_size[asg_name] += required_nodes
 
+    asgs = {}
+    response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
+    for asg in response['AutoScalingGroups']:
+        asgs[asg['AutoScalingGroupName']] = asg
+
     for asg_name, desired_capacity in sorted(asg_size.items()):
-        logger.info('Setting desired capacity for ASG {} to {}..'.format(asg_name, desired_capacity))
-        autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
-                                         DesiredCapacity=desired_capacity, HonorCooldown=True)
+        asg = asgs[asg_name]
+        if desired_capacity != asg['DesiredCapacity']:
+            if desired_capacity > asg['MaxSize']:
+                logger.warn('Desired capacity for ASG {} is {}, but exceeds max {}'.format(
+                            asg_name, desired_capacity, asg['MaxSize']))
+            elif desired_capacity < asg['MinSize']:
+                logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
+                            asg_name, desired_capacity, asg['MinSize']))
+            else:
+                logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
+                            asg_name, asg['DesiredCapacity'], desired_capacity))
+                autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
+                                                 DesiredCapacity=desired_capacity)
 
 
 def main():
@@ -162,7 +181,10 @@ def main():
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
     args = parser.parse_args()
     while True:
-        autoscale()
+        try:
+            autoscale()
+        except:
+            logger.exception('Failed to autoscale')
         if args.once:
             return
         time.sleep(args.interval)
