@@ -57,7 +57,7 @@ The following command line options are supported:
 ``--buffer-memory-percentage``
     Extra memory requests to add to calculation, defaults to 200Mi.
 ``--buffer-pods-percentage``
-    Extra number of pods to overprovisin for, defaults to 10.
+    Extra number of pods to overprovision for, defaults to 10.
 ``--interval``
     Time to sleep between runs in seconds, defaults to 60 seconds.
 ``--once``
