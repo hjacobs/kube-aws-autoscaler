@@ -30,6 +30,8 @@ RESOURCE_PATTERN = re.compile('^(\d*)(\D*)$')
 
 RESOURCES = ['cpu', 'memory', 'pods']
 DEFAULT_CONTAINER_REQUESTS = {'cpu': '10m', 'memory': '50Mi'}
+DEFAULT_BUFFER_PERCENTAGE = {'cpu': 10, 'memory': 10, 'pods': 10}
+DEFAULT_BUFFER_FIXED = {'cpu': '1', 'memory': '200Mi', 'pods': '10'}
 
 logger = logging.getLogger('autoscaler')
 
@@ -45,11 +47,10 @@ def get_node_capacity_tuple(node: dict):
     return tuple(capacity[resource] for resource in RESOURCES)
 
 
-def apply_buffer(requested: dict):
+def apply_buffer(requested: dict, buffer_percentage: dict, buffer_fixed: dict):
     requested_with_buffer = {}
     for resource, val in requested.items():
-        # FIXME: hardcoded 10% buffer
-        requested_with_buffer[resource] = val * 1.1
+        requested_with_buffer[resource] = val * (1. + buffer_percentage[resource]/100) + buffer_fixed[resource]
     return requested_with_buffer
 
 
@@ -64,7 +65,7 @@ def is_sufficient(requested: dict, capacity: dict):
     return True
 
 
-def autoscale():
+def autoscale(buffer_percentage: dict, buffer_fixed: dict):
     try:
         config = pykube.KubeConfig.from_service_account()
     except FileNotFoundError:
@@ -139,13 +140,13 @@ def autoscale():
             for resource, val in pending.items():
                 requested[resource] += val
         logger.info('{}/{}: requested resources: {}'.format(asg_name, zone, requested))
-        requested_with_buffer = apply_buffer(requested)
+        requested_with_buffer = apply_buffer(requested, buffer_percentage, buffer_fixed)
         logger.info('{}/{}: requested with buffer: {}'.format(asg_name, zone, requested_with_buffer))
         # TODO: add requested resources from unassigned/pending pods
         weakest_node = find_weakest_node(nodes)
         required_nodes = 0
         capacity = {resource: 0 for resource in RESOURCES}
-        while not is_sufficient(requested, capacity):
+        while not is_sufficient(requested_with_buffer, capacity):
             for resource in capacity:
                 capacity[resource] += weakest_node['capacity'][resource]
             required_nodes += 1
@@ -179,10 +180,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
+    for resource in RESOURCES:
+        parser.add_argument('--buffer-{}-percentage'.format(resource), type=int, help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
+        parser.add_argument('--buffer-{}-fixed'.format(resource), type=str, help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
     args = parser.parse_args()
+    buffer_percentage = {}
+    buffer_fixed = {}
+    for resource in RESOURCES:
+        buffer_percentage[resource] = getattr(args, 'buffer_{}_percentage'.format(resource))
+        buffer_fixed[resource] = parse_resource(getattr(args, 'buffer_{}_fixed'.format(resource)))
+
     while True:
         try:
-            autoscale()
+            autoscale(buffer_percentage, buffer_fixed)
         except:
             logger.exception('Failed to autoscale')
         if args.once:
