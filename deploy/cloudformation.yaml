@@ -1,0 +1,34 @@
+Description: Autoscaler IAM role
+Resources:
+  AutoscalerIAMRole:
+    Properties:
+      RoleName: "kube-1-app-autoscaler"
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            AWS:
+              Fn::Join:
+                - ""
+                -
+                  - arn:aws:iam::123456789012:role/
+                  -
+                    Ref: WorkerIAMRole
+        Version: '2012-10-17'
+      Path: /
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - {Action: 'ec2:Describe*', Effect: Allow, Resource: '*'}
+          - {Action: 'autoscaling:DescribeAutoScalingGroups', Effect: Allow, Resource: '*'}
+          - {Action: 'autoscaling:DescribeAutoScalingInstances', Effect: Allow, Resource: '*'}
+          - {Action: 'autoscaling:SetDesiredCapacity', Effect: Allow, Resource: '*'}
+          - {Action: 'autoscaling:TerminateInstanceInAutoScalingGroup', Effect: Allow, Resource: '*'}
+          Version: '2012-10-17'
+        PolicyName: root
+    Type: AWS::IAM::Role

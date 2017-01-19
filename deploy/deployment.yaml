@@ -1,0 +1,32 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    application: kube-aws-autoscaler
+    version: v0.0.1
+  name: kube-aws-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      application: kube-aws-autoscaler
+  template:
+    metadata:
+      labels:
+        application: kube-aws-autoscaler
+        version: v0.0.1
+      annotations:
+        # FIXME: using hardcoded IAM role
+        iam.amazonaws.com/role: kube-1-app-autoscaler
+    spec:
+      containers:
+      - name: autoscaler
+        image: hjacobs/kube-aws-autoscaler
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 200m
+            memory: 100Mi
+          requests:
+            cpu: 50m
+            memory: 50Mi

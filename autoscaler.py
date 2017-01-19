@@ -74,7 +74,9 @@ def autoscale():
 
     nodes = {}
     instances = {}
+    region = None
     for node in pykube.Node.objects(api):
+        region = node.labels['failure-domain.beta.kubernetes.io/region']
         zone = node.labels['failure-domain.beta.kubernetes.io/zone']
         instance_type = node.labels['beta.kubernetes.io/instance-type']
         capacity = {}
@@ -87,7 +89,7 @@ def autoscale():
 
     nodes_by_asg_zone = collections.defaultdict(list)
 
-    autoscaling = boto3.client('autoscaling')
+    autoscaling = boto3.client('autoscaling', region)
     response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
     for instance in response['AutoScalingInstances']:
         instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
