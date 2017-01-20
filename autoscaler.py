@@ -65,7 +65,7 @@ def is_sufficient(requested: dict, capacity: dict):
     return True
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict):
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     try:
         config = pykube.KubeConfig.from_service_account()
     except FileNotFoundError:
@@ -171,13 +171,18 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict):
             else:
                 logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
                             asg_name, asg['DesiredCapacity'], desired_capacity))
-                autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
-                                                 DesiredCapacity=desired_capacity)
+                if dry_run:
+                    logger.info('**DRY-RUN**: not performing any change')
+                else:
+                    autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
+                                                     DesiredCapacity=desired_capacity)
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
+    parser.add_argument('--dry-run', help='Dry run mode: do not change anything, just print what would be done',
+                        action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
     for resource in RESOURCES:
@@ -190,9 +195,12 @@ def main():
         buffer_percentage[resource] = getattr(args, 'buffer_{}_percentage'.format(resource))
         buffer_fixed[resource] = parse_resource(getattr(args, 'buffer_{}_fixed'.format(resource)))
 
+    if args.dry_run:
+        logger.info('**DRY-RUN**: no autoscaling will be performed!')
+
     while True:
         try:
-            autoscale(buffer_percentage, buffer_fixed)
+            autoscale(buffer_percentage, buffer_fixed, dry_run=args.dry_run)
         except:
             logger.exception('Failed to autoscale')
         if args.once:
