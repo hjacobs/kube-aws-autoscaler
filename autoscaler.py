@@ -102,6 +102,10 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     usage_by_asg_zone = {}
 
     for pod in pods:
+        phase = pod.obj['status'].get('phase')
+        if phase == 'Succeeded':
+            # ignore completed jobs
+            continue
         node = nodes.get(pod.obj['spec'].get('nodeName'))
         if node:
             asg_name = node['asg_name']
@@ -137,13 +141,15 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
         requested = usage_by_asg_zone.get(key)
         pending = usage_by_asg_zone.get(('unknown', 'unknown'))
         if pending:
+            # add requested resources from unassigned/pending pods
             for resource, val in pending.items():
                 requested[resource] += val
-        logger.info('{}/{}: requested resources: {}'.format(asg_name, zone, requested))
         requested_with_buffer = apply_buffer(requested, buffer_percentage, buffer_fixed)
-        logger.info('{}/{}: requested with buffer: {}'.format(asg_name, zone, requested_with_buffer))
-        # TODO: add requested resources from unassigned/pending pods
         weakest_node = find_weakest_node(nodes)
+        logger.info('{}/{}:                {}'.format(asg_name, zone, ' '.join([r.rjust(14).upper() for r in RESOURCES])))
+        logger.info('{}/{}: requested:     {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(requested[r]) for r in RESOURCES])))
+        logger.info('{}/{}: with buffer:   {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(requested_with_buffer[r]) for r in RESOURCES])))
+        logger.info('{}/{}: weakest node:  {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(weakest_node['capacity'][r]) for r in RESOURCES])))
         required_nodes = 0
         capacity = {resource: 0 for resource in RESOURCES}
         while not is_sufficient(requested_with_buffer, capacity):
