@@ -31,12 +31,13 @@ RESOURCE_PATTERN = re.compile('^(\d*)(\D*)$')
 RESOURCES = ['cpu', 'memory', 'pods']
 DEFAULT_CONTAINER_REQUESTS = {'cpu': '10m', 'memory': '50Mi'}
 DEFAULT_BUFFER_PERCENTAGE = {'cpu': 10, 'memory': 10, 'pods': 10}
-DEFAULT_BUFFER_FIXED = {'cpu': '1', 'memory': '200Mi', 'pods': '10'}
+DEFAULT_BUFFER_FIXED = {'cpu': '200m', 'memory': '200Mi', 'pods': '10'}
 
 logger = logging.getLogger('autoscaler')
 
 
 def parse_resource(v: str):
+    '''Parse Kubernetes resource string'''
     match = RESOURCE_PATTERN.match(v)
     factor = FACTORS.get(match.group(2), 1)
     return int(match.group(1)) * factor
@@ -65,17 +66,8 @@ def is_sufficient(requested: dict, capacity: dict):
     return True
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
-    try:
-        config = pykube.KubeConfig.from_service_account()
-    except FileNotFoundError:
-        # local testing
-        config = pykube.KubeConfig.from_file(os.path.expanduser('~/.kube/config'))
-    api = pykube.HTTPClient(config)
-
+def get_nodes(api) -> dict:
     nodes = {}
-    instances = {}
-    region = None
     for node in pykube.Node.objects(api):
         region = node.labels['failure-domain.beta.kubernetes.io/region']
         zone = node.labels['failure-domain.beta.kubernetes.io/zone']
@@ -84,21 +76,28 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
         for key, val in node.obj['status']['capacity'].items():
             capacity[key] = parse_resource(val)
         instance_id = node.obj['spec']['externalID']
-        obj = {'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type, 'capacity': capacity}
+        obj = {'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type, 'capacity': capacity}
         nodes[node.name] = obj
-        instances[instance_id] = obj
+    return nodes
+
+
+def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
+    # first map instance_id to node object for later look up
+    instances = {}
+    for node in nodes.values():
+        instances[node['instance_id']] = node
 
     nodes_by_asg_zone = collections.defaultdict(list)
 
-    autoscaling = boto3.client('autoscaling', region)
     response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
     for instance in response['AutoScalingInstances']:
         instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
         key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
         nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
+    return nodes_by_asg_zone
 
-    pods = pykube.Pod.objects(api, namespace=pykube.all)
 
+def calculate_usage_by_asg_zone(pods: list, nodes: dict) -> dict:
     usage_by_asg_zone = {}
 
     for pod in pods:
@@ -113,7 +112,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
         else:
             # pod is unassigned/pending
             asg_name = 'unknown'
-            # TODO: we actually know the AZ by looking at volumes..
+            # TODO: we actually might know the AZ by looking at volumes..
             zone = 'unknown'
         requests = collections.defaultdict(int)
         requests['pods'] = 1
@@ -132,12 +131,14 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
             usage_by_asg_zone[key] = {resource: 0 for resource in RESOURCES}
         for resource in usage_by_asg_zone[key]:
             usage_by_asg_zone[key][resource] += requests.get(resource, 0)
+    return usage_by_asg_zone
 
+
+def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict, buffer_percentage: dict, buffer_fixed: dict):
     asg_size = collections.defaultdict(int)
 
     for key, nodes in sorted(nodes_by_asg_zone.items()):
         asg_name, zone = key
-        logger.info('{}/{}: current nodes: {}'.format(asg_name, zone, len(nodes)))
         requested = usage_by_asg_zone.get(key)
         pending = usage_by_asg_zone.get(('unknown', 'unknown'))
         if pending:
@@ -157,9 +158,12 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
                 capacity[resource] += weakest_node['capacity'][resource]
             required_nodes += 1
 
-        logger.info('{}/{}: required nodes: {}'.format(asg_name, zone, required_nodes))
+        logger.info('{}/{}: current nodes: {}, required: {}'.format(asg_name, zone, len(nodes), required_nodes))
         asg_size[asg_name] += required_nodes
+    return asg_size
 
+
+def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool):
     asgs = {}
     response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
     for asg in response['AutoScalingGroups']:
@@ -182,6 +186,27 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
                 else:
                     autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
                                                      DesiredCapacity=desired_capacity)
+
+
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
+    try:
+        config = pykube.KubeConfig.from_service_account()
+    except FileNotFoundError:
+        # local testing
+        config = pykube.KubeConfig.from_file(os.path.expanduser('~/.kube/config'))
+    api = pykube.HTTPClient(config)
+
+    nodes = get_nodes(api)
+    region = list(nodes.values())[0]['region']
+
+    autoscaling = boto3.client('autoscaling', region)
+    nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, nodes)
+
+    pods = pykube.Pod.objects(api, namespace=pykube.all)
+
+    usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes)
+    asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
+    resize_auto_scaling_groups(autoscaling, asg_size, dry_run)
 
 
 def main():
