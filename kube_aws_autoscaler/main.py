@@ -217,8 +217,10 @@ def main():
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
     for resource in RESOURCES:
-        parser.add_argument('--buffer-{}-percentage'.format(resource), type=int, help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
-        parser.add_argument('--buffer-{}-fixed'.format(resource), type=str, help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
+        parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
+                            help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
+        parser.add_argument('--buffer-{}-fixed'.format(resource), type=str,
+                            help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
     args = parser.parse_args()
     buffer_percentage = {}
     buffer_fixed = {}
@@ -237,7 +239,3 @@ def main():
         if args.once:
             return
         time.sleep(args.interval)
-
-
-if __name__ == '__main__':
-    main()

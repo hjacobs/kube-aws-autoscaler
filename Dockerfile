@@ -5,7 +5,9 @@ RUN apk add --no-cache python3 ca-certificates && \
     pip3 install --upgrade pip setuptools boto3 pykube && \
     rm -rf /var/cache/apk/* /root/.cache /tmp/* 
 
-COPY autoscaler.py /
+WORKDIR /
+
+COPY kube_aws_autoscaler /kube_aws_autoscaler
 COPY scm-source.json /
 
-ENTRYPOINT ["/autoscaler.py"]
+ENTRYPOINT ["python3", "-m", "kube_aws_autoscaler"]
