@@ -2,6 +2,14 @@
 Kubernetes AWS Cluster Autoscaler
 =================================
 
+.. image:: https://travis-ci.org/hjacobs/kube-aws-autoscaler.svg?branch=master
+   :target: https://travis-ci.org/hjacobs/kube-aws-autoscaler
+   :alt: Travis CI Build Status
+
+.. image:: https://coveralls.io/repos/github/hjacobs/kube-aws-autoscaler/badge.svg?branch=master
+   :target: https://coveralls.io/github/hjacobs/kube-aws-autoscaler?branch=master
+   :alt: Code Coverage
+
 ** THIS IS JUST A HACK - WORK IN PROGRESS **
 
 Simple cluster autoscaler for AWS Auto Scaling Groups which sets the ``DesiredCapacity`` of one or more ASGs to the calculated number of nodes.
