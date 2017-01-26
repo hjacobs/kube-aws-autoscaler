@@ -51,7 +51,7 @@ def get_node_capacity_tuple(node: dict):
 def apply_buffer(requested: dict, buffer_percentage: dict, buffer_fixed: dict):
     requested_with_buffer = {}
     for resource, val in requested.items():
-        requested_with_buffer[resource] = val * (1. + buffer_percentage[resource]/100) + buffer_fixed[resource]
+        requested_with_buffer[resource] = val * (1. + buffer_percentage.get(resource, 0)/100) + buffer_fixed.get(resource, 0)
     return requested_with_buffer
 
 
@@ -139,7 +139,7 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
 
     for key, nodes in sorted(nodes_by_asg_zone.items()):
         asg_name, zone = key
-        requested = usage_by_asg_zone.get(key)
+        requested = usage_by_asg_zone.get(key) or {resource: 0 for resource in RESOURCES}
         pending = usage_by_asg_zone.get(('unknown', 'unknown'))
         if pending:
             # add requested resources from unassigned/pending pods

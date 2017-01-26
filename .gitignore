@@ -9,3 +9,4 @@ scm-source.json
 .cache/
 .coverage
 *.bak
+htmlcov/
