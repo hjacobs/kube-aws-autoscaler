@@ -79,7 +79,11 @@ def get_nodes(api) -> dict:
         for key, val in node.obj['status']['capacity'].items():
             capacity[key] = parse_resource(val)
         instance_id = node.obj['spec']['externalID']
-        obj = {'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type, 'capacity': capacity}
+        obj = {'name': node.name,
+               'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type,
+               'capacity': capacity,
+               'unschedulable': node.obj['spec'].get('unschedulable', False),
+               'master': node.labels.get('master', 'false') == 'true'}
         nodes[node.name] = obj
     return nodes
 
@@ -168,6 +172,11 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
             for resource in capacity:
                 capacity[resource] += weakest_node['capacity'][resource]
             required_nodes += 1
+
+        for node in nodes:
+            if node['unschedulable'] and not node['master']:
+                logger.info('Node {} is marked as unschedulable, compensating.'.format(node['name']))
+                required_nodes += 1
 
         overprovisioned = {resource: 0 for resource in RESOURCES}
         for resource, value in capacity.items():

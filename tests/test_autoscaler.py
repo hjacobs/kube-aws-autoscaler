@@ -50,10 +50,16 @@ def test_calculate_usage_by_asg_zone():
 
 def test_calculate_required_auto_scaling_group_sizes():
     assert calculate_required_auto_scaling_group_sizes({}, {}, {}, {}) == {}
-    node = {'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}}
+    node = {'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': False, 'master': False}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 0}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('unknown', 'unknown'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
+
+
+def test_calculate_required_auto_scaling_group_sizes_cordon():
+    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False}
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 1}
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 2}
 
 
 def test_get_nodes_by_asg_zone():
@@ -143,8 +149,12 @@ def test_get_nodes(monkeypatch):
     objects.return_value = [node]
     monkeypatch.setattr('pykube.Node.objects', objects)
     api = MagicMock()
-    assert get_nodes(api) == {'n1': {'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
-        'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10}}}
+    assert get_nodes(api) == {'n1': {
+        'name': 'n1',
+        'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
+        'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+        'unschedulable': False,
+        'master': False}}
 
 
 def test_get_kube_api(monkeypatch):
@@ -160,7 +170,9 @@ def test_autoscale(monkeypatch):
     kube_config = MagicMock()
     get_nodes = MagicMock()
     get_nodes.return_value = {'n1': {'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
-                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10}}}
+                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'unschedulable': False,
+                'master': False}}
     get_pods = MagicMock()
     pod = MagicMock()
     pod.obj = {'status': {}, 'spec': {'nodeName': 'n1', 'containers': [{'name': 'c1', 'resources': {'requests': {'cpu': '4000m'}}}]}}
