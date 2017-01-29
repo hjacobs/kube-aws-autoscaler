@@ -163,7 +163,7 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
     return asg_size
 
 
-def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool):
+def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False):
     asgs = {}
     response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
     for asg in response['AutoScalingGroups']:
