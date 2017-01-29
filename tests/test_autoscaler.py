@@ -1,10 +1,14 @@
+import os
 from unittest.mock import MagicMock
 
-from kube_aws_autoscaler.main import (apply_buffer,
+import pytest
+
+from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       calculate_required_auto_scaling_group_sizes,
-                                      calculate_usage_by_asg_zone, get_nodes,
+                                      calculate_usage_by_asg_zone,
+                                      get_kube_api, get_nodes,
                                       get_nodes_by_asg_zone, is_sufficient,
-                                      parse_resource,
+                                      main, parse_resource,
                                       resize_auto_scaling_groups)
 
 
@@ -141,3 +145,51 @@ def test_get_nodes(monkeypatch):
     api = MagicMock()
     assert get_nodes(api) == {'n1': {'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
         'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10}}}
+
+
+def test_get_kube_api(monkeypatch):
+    kube_config = MagicMock()
+    kube_config.from_service_account.side_effect = FileNotFoundError
+    monkeypatch.setattr('pykube.KubeConfig', kube_config)
+    monkeypatch.setattr('pykube.HTTPClient', MagicMock())
+    get_kube_api()
+    kube_config.from_file.assert_called_once_with(os.path.expanduser('~/.kube/config'))
+
+
+def test_autoscale(monkeypatch):
+    kube_config = MagicMock()
+    get_nodes = MagicMock()
+    get_nodes.return_value = {'n1': {'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
+                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10}}}
+    get_pods = MagicMock()
+    pod = MagicMock()
+    pod.obj = {'status': {}, 'spec': {'nodeName': 'n1', 'containers': [{'name': 'c1', 'resources': {'requests': {'cpu': '4000m'}}}]}}
+    get_pods.return_value = [pod]
+    boto3_client = MagicMock()
+    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [{'InstanceId': 'i-123', 'AutoScalingGroupName': 'a1', 'AvailabilityZone': 'eu-north-1a'}]}
+    boto3_client.return_value.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': [{'AutoScalingGroupName': 'a1', 'DesiredCapacity': 1, 'MinSize': 1, 'MaxSize': 10}]}
+    monkeypatch.setattr('pykube.KubeConfig', kube_config)
+    monkeypatch.setattr('pykube.HTTPClient', MagicMock())
+    monkeypatch.setattr('pykube.Pod.objects', get_pods)
+    monkeypatch.setattr('kube_aws_autoscaler.main.get_nodes', get_nodes)
+    monkeypatch.setattr('boto3.client', boto3_client)
+
+    buffer_percentage = {}
+    buffer_fixed = {}
+    autoscale(buffer_percentage, buffer_fixed, False)
+    boto3_client.return_value.set_desired_capacity.assert_called_with(AutoScalingGroupName='a1', DesiredCapacity=2)
+
+
+def test_main(monkeypatch):
+    autoscale = MagicMock()
+    monkeypatch.setattr('kube_aws_autoscaler.main.autoscale', autoscale)
+    monkeypatch.setattr('sys.argv', ['foo', '--once', '--dry-run'])
+    main()
+    autoscale.assert_called_once_with({'memory': 10, 'pods': 10, 'cpu': 10}, {'memory': 209715200, 'pods': 10, 'cpu': 0.2}, dry_run=True)
+
+    autoscale.side_effect = ValueError
+
+    monkeypatch.setattr('sys.argv', ['foo', '--dry-run'])
+    monkeypatch.setattr('time.sleep', MagicMock(side_effect=Exception))
+    with pytest.raises(Exception):
+        main()

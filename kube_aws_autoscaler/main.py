@@ -188,13 +188,18 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False)
                                                      DesiredCapacity=desired_capacity)
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
+def get_kube_api():
     try:
         config = pykube.KubeConfig.from_service_account()
     except FileNotFoundError:
         # local testing
         config = pykube.KubeConfig.from_file(os.path.expanduser('~/.kube/config'))
     api = pykube.HTTPClient(config)
+    return api
+
+
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
+    api = get_kube_api()
 
     nodes = get_nodes(api)
     region = list(nodes.values())[0]['region']
