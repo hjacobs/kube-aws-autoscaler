@@ -36,6 +36,9 @@ DEFAULT_BUFFER_FIXED = {'cpu': '200m', 'memory': '200Mi', 'pods': '10'}
 logger = logging.getLogger('autoscaler')
 
 
+STATS = {}
+
+
 def parse_resource(v: str):
     '''Parse Kubernetes resource string'''
     match = RESOURCE_PATTERN.match(v)
@@ -122,8 +125,8 @@ def calculate_usage_by_asg_zone(pods: list, nodes: dict) -> dict:
                 if resource != 'pods':
                     value = container_requests.get(resource)
                     if not value:
-                        logger.warn('Container {}/{} has no resource request for {}'.format(
-                                    pod.name, container['name'], resource))
+                        logger.debug('Container {}/{} has no resource request for {}'.format(
+                                     pod.name, container['name'], resource))
                         value = DEFAULT_CONTAINER_REQUESTS[resource]
                     requests[resource] += parse_resource(value)
         key = asg_name, zone
@@ -134,8 +137,20 @@ def calculate_usage_by_asg_zone(pods: list, nodes: dict) -> dict:
     return usage_by_asg_zone
 
 
+def format_resource(value: float, resource: str):
+    if resource == 'cpu':
+        return '{:.1f}'.format(value)
+    elif resource == 'memory':
+        return '{:.0f}Mi'.format(value / (1024*1024))
+    elif resource == 'pods':
+        return '{:.0f}'.format(value)
+    return '{:.0f}'.format(value)
+
+
 def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict, buffer_percentage: dict, buffer_fixed: dict):
     asg_size = collections.defaultdict(int)
+
+    dump_info = STATS.get('last_info_dump', 0) < (time.time() - 600)
 
     for key, nodes in sorted(nodes_by_asg_zone.items()):
         asg_name, zone = key
@@ -147,10 +162,6 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
                 requested[resource] += val
         requested_with_buffer = apply_buffer(requested, buffer_percentage, buffer_fixed)
         weakest_node = find_weakest_node(nodes)
-        logger.info('{}/{}:                {}'.format(asg_name, zone, ' '.join([r.rjust(14).upper() for r in RESOURCES])))
-        logger.info('{}/{}: requested:     {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(requested[r]) for r in RESOURCES])))
-        logger.info('{}/{}: with buffer:   {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(requested_with_buffer[r]) for r in RESOURCES])))
-        logger.info('{}/{}: weakest node:  {}'.format(asg_name, zone, ' '.join(['{:>14.1f}'.format(weakest_node['capacity'][r]) for r in RESOURCES])))
         required_nodes = 0
         capacity = {resource: 0 for resource in RESOURCES}
         while not is_sufficient(requested_with_buffer, capacity):
@@ -158,8 +169,25 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
                 capacity[resource] += weakest_node['capacity'][resource]
             required_nodes += 1
 
-        logger.info('{}/{}: current nodes: {}, required: {}'.format(asg_name, zone, len(nodes), required_nodes))
+        overprovisioned = {resource: 0 for resource in RESOURCES}
+        for resource, value in capacity.items():
+            overprovisioned[resource] = value - requested[resource]
+
+        if dump_info:
+            logger.info('{}/{}:                {}'.format(asg_name, zone,
+                        ' '.join([r.rjust(10).upper() for r in RESOURCES])))
+            logger.info('{}/{}: requested:     {}'.format(asg_name, zone,
+                        ' '.join([format_resource(requested[r], r).rjust(10) for r in RESOURCES])))
+            logger.info('{}/{}: with buffer:   {}'.format(asg_name, zone,
+                        ' '.join([format_resource(requested_with_buffer[r], r).rjust(10) for r in RESOURCES])))
+            logger.info('{}/{}: weakest node:  {}'.format(asg_name, zone,
+                        ' '.join([format_resource(weakest_node['capacity'][r], r).rjust(10) for r in RESOURCES])))
+            logger.info('{}/{}: overprovision: {}'.format(asg_name, zone,
+                        ' '.join([format_resource(overprovisioned[r], r).rjust(10) for r in RESOURCES])))
+            logger.info('{}/{}: => {} nodes required (current: {})'.format(asg_name, zone, required_nodes, len(nodes)))
+            STATS['last_info_dump'] = time.time()
         asg_size[asg_name] += required_nodes
+
     return asg_size
 
 
@@ -215,10 +243,10 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', help='Dry run mode: do not change anything, just print what would be done',
                         action='store_true')
+    parser.add_argument('--debug', '-d', help='Debug mode: print more information', action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
     for resource in RESOURCES:
@@ -227,6 +255,10 @@ def main():
         parser.add_argument('--buffer-{}-fixed'.format(resource), type=str,
                             help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.getLogger('botocore').setLevel(logging.WARN)
+
     buffer_percentage = {}
     buffer_fixed = {}
     for resource in RESOURCES:
