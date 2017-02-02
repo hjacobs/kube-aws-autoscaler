@@ -151,6 +151,22 @@ def format_resource(value: float, resource: str):
     return '{:.0f}'.format(value)
 
 
+def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
+    node_counts_by_asg = collections.defaultdict(int)
+    for key, nodes in sorted(nodes_by_asg_zone.items()):
+        asg_name, zone = key
+        node_counts_by_asg[asg_name] += len(nodes)
+
+    for asg_name, desired_size in sorted(asg_sizes.items()):
+        amount_of_downscale = node_counts_by_asg[asg_name] - desired_size
+        if amount_of_downscale >= 2:
+            new_desired_size = node_counts_by_asg[asg_name] - 1
+            logger.info('Slowing down downscale: changing desired size of ASG {} from {} to {}'.format(asg_name, desired_size, new_desired_size))
+            asg_sizes[asg_name] = new_desired_size
+
+    return asg_sizes
+
+
 def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict, buffer_percentage: dict, buffer_fixed: dict):
     asg_size = collections.defaultdict(int)
 
@@ -248,6 +264,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
 
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
+    asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, dry_run)
 
 
