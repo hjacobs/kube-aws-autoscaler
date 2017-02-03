@@ -9,7 +9,8 @@ from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       format_resource, get_kube_api, get_nodes,
                                       get_nodes_by_asg_zone, is_sufficient,
                                       main, parse_resource,
-                                      resize_auto_scaling_groups)
+                                      resize_auto_scaling_groups,
+                                      slow_down_downscale)
 
 
 def test_parse_resource():
@@ -212,3 +213,14 @@ def test_format_resource():
     assert format_resource(1024*1024, 'memory') == '1Mi'
     assert format_resource(1, 'pods') == '1'
     assert format_resource(1, 'foo') == '1'
+
+
+def test_slow_down_downscale():
+    assert slow_down_downscale({}, {}) == {}
+    assert slow_down_downscale({'a1': 1}, {('a1', 'z1'): [{}]}) == {'a1': 1}
+    # scale up
+    assert slow_down_downscale({'a1': 2}, {('a1', 'z1'): [{}]}) == {'a1': 2}
+    assert slow_down_downscale({'a1': 10}, {('a1', 'z1'): [{}]}) == {'a1': 10}
+    # scale down
+    assert slow_down_downscale({'a1': 1}, {('a1', 'z1'): [{}, {}]}) == {'a1': 1}
+    assert slow_down_downscale({'a1': 1}, {('a1', 'z1'): [{}, {}, {}]}) == {'a1': 2}

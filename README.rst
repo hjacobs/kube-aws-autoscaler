@@ -10,7 +10,7 @@ Kubernetes AWS Cluster Autoscaler
    :target: https://coveralls.io/github/hjacobs/kube-aws-autoscaler?branch=master
    :alt: Code Coverage
 
-** THIS IS JUST A HACK - WORK IN PROGRESS **
+** THIS IS A PROOF OF CONCEPT - WORK IN PROGRESS **
 
 Simple cluster autoscaler for AWS Auto Scaling Groups which sets the ``DesiredCapacity`` of one or more ASGs to the calculated number of nodes.
 
@@ -20,6 +20,7 @@ Goals:
 * support resource buffer (overprovision fixed or percentage amount)
 * respect Availability Zones, i.e. make sure that all AZs provide enough capacity
 * be deterministic and predictable, i.e. the ``DesiredCapacity`` is only calculated based on the current cluster state
+* scale down slowly to mitigate service disruptions, i.e. at most one node at a time
 * require a minimum amount of configuration (preferably none)
 * keep it simple
 
@@ -30,6 +31,31 @@ This hack was created as a proof of concept and born out of frustration with the
 * it does not support multiple Auto Scaling Groups
 * it requires unnecessary configuration
 * the code is quite complex
+
+
+How it works
+============
+
+The autoscaler consists of a simple main loop which calls the ``autoscale`` function every 60 seconds (configurable via the ``--interval`` option).
+The main loop keeps no state (like history), all input for the ``autoscale`` function comes from either static configuration or the Kubernetes API server.
+The ``autoscale`` function performs the following task:
+
+* retrieve the list of all nodes from the Kubernetes API and group them by Auto Scaling Group (ASG) and Availability Zone (AZ)
+* retrieve the list of all pods from the Kubernetes API
+* calculate the current resource "usage" for every ASG and AZ by summing up all pod resource requests (CPU, memory and number of pods)
+* calculates the currently required number of nodes per AWS Auto Scaling Group:
+
+  * iterate through every ASG/AZ combination
+  * use the calculated resource usage (sum of resource requests) and add the resource requests of any unassigned pods (pods not scheduled on any node yet)
+  * apply the configured buffer values (10% extra for CPU and memory by default)
+  * find the capacity of the weakest node
+  * calculate the number of required nodes by adding up the capacity of the weakest node until the sum is greater than or equal to requested+buffer for both CPU and memory
+  * sum up the number of required nodes from all AZ for the ASG
+
+* adjust the number of required nodes if it would scale down more than one node at a time
+* set the ``DesiredCapacity`` for each ASG to the calculated number of required nodes
+
+The whole process relies on having properly configured resource requests for all pods.
 
 
 Usage
