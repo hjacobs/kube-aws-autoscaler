@@ -6,7 +6,7 @@ Kubernetes AWS Cluster Autoscaler
    :target: https://travis-ci.org/hjacobs/kube-aws-autoscaler
    :alt: Travis CI Build Status
 
-.. image:: https://coveralls.io/repos/github/hjacobs/kube-aws-autoscaler/badge.svg?branch=master
+.. image:: https://coveralls.io/repos/github/hjacobs/kube-aws-autoscaler/badge.svg?branch=master;_=1
    :target: https://coveralls.io/github/hjacobs/kube-aws-autoscaler?branch=master
    :alt: Code Coverage
 
