@@ -170,7 +170,9 @@ def test_get_kube_api(monkeypatch):
 def test_autoscale(monkeypatch):
     kube_config = MagicMock()
     get_nodes = MagicMock()
-    get_nodes.return_value = {'n1': {'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
+    get_nodes.return_value = {'n1': {
+                'name': 'n1',
+                'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
                 'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
                 'unschedulable': False,
                 'master': False}}
@@ -191,6 +193,33 @@ def test_autoscale(monkeypatch):
     buffer_fixed = {}
     autoscale(buffer_percentage, buffer_fixed, False)
     boto3_client.return_value.set_desired_capacity.assert_called_with(AutoScalingGroupName='a1', DesiredCapacity=2)
+
+
+def test_autoscale_node_without_asg(monkeypatch):
+    kube_config = MagicMock()
+    get_nodes = MagicMock()
+    get_nodes.return_value = {'n1': {
+                'name': 'n1',
+                'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
+                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'unschedulable': False,
+                'master': False}}
+    get_pods = MagicMock()
+    pod = MagicMock()
+    pod.obj = {'status': {}, 'spec': {'nodeName': 'n1', 'containers': [{'name': 'c1', 'resources': {'requests': {'cpu': '1000m'}}}]}}
+    get_pods.return_value = [pod]
+    boto3_client = MagicMock()
+    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': []}
+    boto3_client.return_value.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': [{'AutoScalingGroupName': 'a1', 'DesiredCapacity': 1, 'MinSize': 1, 'MaxSize': 10}]}
+    monkeypatch.setattr('pykube.KubeConfig', kube_config)
+    monkeypatch.setattr('pykube.HTTPClient', MagicMock())
+    monkeypatch.setattr('pykube.Pod.objects', get_pods)
+    monkeypatch.setattr('kube_aws_autoscaler.main.get_nodes', get_nodes)
+    monkeypatch.setattr('boto3.client', boto3_client)
+
+    buffer_percentage = {}
+    buffer_fixed = {}
+    autoscale(buffer_percentage, buffer_fixed, False)
 
 
 def test_main(monkeypatch):
