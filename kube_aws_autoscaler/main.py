@@ -2,6 +2,7 @@
 
 import argparse
 import collections
+import itertools
 import logging
 import os
 import re
@@ -251,18 +252,27 @@ def get_kube_api():
     return api
 
 
+def get_nodes_by_name(nodes: list):
+    nodes_by_name = {}
+    for node in nodes:
+        nodes_by_name[node['name']] = node
+    return nodes_by_name
+
+
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     api = get_kube_api()
 
-    nodes = get_nodes(api)
-    region = list(nodes.values())[0]['region']
+    all_nodes = get_nodes(api)
+    region = list(all_nodes.values())[0]['region']
 
     autoscaling = boto3.client('autoscaling', region)
-    nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, nodes)
+    nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes)
+    # we only consider nodes found in an ASG (old "ghost" nodes returned from Kubernetes API are ignored)
+    nodes_by_name = get_nodes_by_name(itertools.chain(*nodes_by_asg_zone.values()))
 
     pods = pykube.Pod.objects(api, namespace=pykube.all)
 
-    usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes)
+    usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, dry_run)
