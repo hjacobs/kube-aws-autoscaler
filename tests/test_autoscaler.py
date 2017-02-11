@@ -59,9 +59,16 @@ def test_calculate_required_auto_scaling_group_sizes():
 
 
 def test_calculate_required_auto_scaling_group_sizes_cordon():
-    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False}
+    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'InService'}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 1}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 2}
+
+
+def test_calculate_required_auto_scaling_group_sizes_unschedulable_terminating():
+    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'Terminating'}
+    # do not compensate if the instance is terminating.. (it will probably be replaced by ASG)
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 0}
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
 
 
 def test_get_nodes_by_asg_zone():
@@ -69,8 +76,11 @@ def test_get_nodes_by_asg_zone():
     autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': []}
     assert get_nodes_by_asg_zone(autoscaling, {}) == {}
 
-    autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [{'InstanceId': 'i-1', 'AutoScalingGroupName': 'myasg', 'AvailabilityZone': 'myaz'}]}
-    assert get_nodes_by_asg_zone(autoscaling, {'foo': {'instance_id': 'i-1'}}) == {('myasg', 'myaz'): [{'asg_name': 'myasg', 'instance_id': 'i-1'}]}
+    autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [
+        {'InstanceId': 'i-1', 'AutoScalingGroupName': 'myasg', 'AvailabilityZone': 'myaz', 'LifecycleState': 'InService'}
+    ]}
+    expected_result = {('myasg', 'myaz'): [{'asg_name': 'myasg', 'instance_id': 'i-1', 'asg_lifecycle_state': 'InService'}]}
+    assert get_nodes_by_asg_zone(autoscaling, {'foo': {'instance_id': 'i-1'}}) == expected_result
 
 
 def test_resize_auto_scaling_groups_empty():
@@ -263,7 +273,9 @@ def test_autoscale(monkeypatch):
     pod.obj = {'status': {}, 'spec': {'nodeName': 'n1', 'containers': [{'name': 'c1', 'resources': {'requests': {'cpu': '4000m'}}}]}}
     get_pods.return_value = [pod]
     boto3_client = MagicMock()
-    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [{'InstanceId': 'i-123', 'AutoScalingGroupName': 'a1', 'AvailabilityZone': 'eu-north-1a'}]}
+    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [
+        {'InstanceId': 'i-123', 'AutoScalingGroupName': 'a1', 'AvailabilityZone': 'eu-north-1a', 'LifecycleState': 'InService'}
+    ]}
     boto3_client.return_value.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': [{'AutoScalingGroupName': 'a1', 'DesiredCapacity': 1, 'MinSize': 1, 'MaxSize': 10}]}
     monkeypatch.setattr('pykube.KubeConfig', kube_config)
     monkeypatch.setattr('pykube.HTTPClient', MagicMock())

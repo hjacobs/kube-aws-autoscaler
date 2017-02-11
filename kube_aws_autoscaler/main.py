@@ -111,6 +111,7 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
     response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
     for instance in response['AutoScalingInstances']:
         instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
+        instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
         key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
         nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
     return nodes_by_asg_zone
@@ -202,7 +203,9 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
             required_nodes += 1
 
         for node in nodes:
-            if node['unschedulable'] and not node['master']:
+            # compensate any manually cordoned nodes (e.g. by kubectl drain)
+            # but only if they are "in service", i.e. not being terminated by ASG right now
+            if node['unschedulable'] and not node['master'] and node['asg_lifecycle_state'] == 'InService':
                 logger.info('Node {} is marked as unschedulable, compensating.'.format(node['name']))
                 required_nodes += 1
 
