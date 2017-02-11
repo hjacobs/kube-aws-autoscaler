@@ -225,21 +225,22 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False)
 
     for asg_name, desired_capacity in sorted(asg_size.items()):
         asg = asgs[asg_name]
+        if desired_capacity > asg['MaxSize']:
+            logger.warn('Desired capacity for ASG {} is {}, but exceeds max {}'.format(
+                        asg_name, desired_capacity, asg['MaxSize']))
+            desired_capacity = asg['MaxSize']
+        elif desired_capacity < asg['MinSize']:
+            logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
+                        asg_name, desired_capacity, asg['MinSize']))
+            desired_capacity = asg['MinSize']
         if desired_capacity != asg['DesiredCapacity']:
-            if desired_capacity > asg['MaxSize']:
-                logger.warn('Desired capacity for ASG {} is {}, but exceeds max {}'.format(
-                            asg_name, desired_capacity, asg['MaxSize']))
-            elif desired_capacity < asg['MinSize']:
-                logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
-                            asg_name, desired_capacity, asg['MinSize']))
+            logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
+                        asg_name, asg['DesiredCapacity'], desired_capacity))
+            if dry_run:
+                logger.info('**DRY-RUN**: not performing any change')
             else:
-                logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
-                            asg_name, asg['DesiredCapacity'], desired_capacity))
-                if dry_run:
-                    logger.info('**DRY-RUN**: not performing any change')
-                else:
-                    autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
-                                                     DesiredCapacity=desired_capacity)
+                autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
+                                                 DesiredCapacity=desired_capacity)
 
 
 def get_kube_api():
