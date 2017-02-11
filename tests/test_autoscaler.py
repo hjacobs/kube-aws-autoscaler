@@ -49,6 +49,20 @@ def test_calculate_usage_by_asg_zone():
     nodes = {'foo': {'asg_name': 'asg1', 'zone': 'z1'}}
     assert calculate_usage_by_asg_zone([pod], nodes) == {('asg1', 'z1'): {'cpu': 1/1000, 'memory': 52428800, 'pods': 1}}
 
+    # pod is assigned to a node, but pending
+    pod = MagicMock()
+    pod.name = 'mypod'
+    pod.obj = {'status': {'phase': 'Pending'}, 'spec': {'nodeName': 'foo', 'containers': [{'name': 'mycont', 'resources': {'requests': {'cpu': '1m'}}}]}}
+    nodes = {}
+    assert calculate_usage_by_asg_zone([pod], nodes) == {('unknown', 'unknown'): {'cpu': 1/1000, 'memory': 52428800, 'pods': 1}}
+
+    # pod is a "ghost" --- returned by API but node no longer exists
+    pod = MagicMock()
+    pod.name = 'mypod'
+    pod.obj = {'status': {'phase': 'Running'}, 'spec': {'nodeName': 'foo', 'containers': [{'name': 'mycont', 'resources': {'requests': {'cpu': '1m'}}}]}}
+    nodes = {}
+    assert calculate_usage_by_asg_zone([pod], nodes) == {}
+
 
 def test_calculate_required_auto_scaling_group_sizes():
     assert calculate_required_auto_scaling_group_sizes({}, {}, {}, {}) == {}

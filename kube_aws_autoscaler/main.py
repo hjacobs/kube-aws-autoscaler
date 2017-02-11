@@ -125,11 +125,16 @@ def calculate_usage_by_asg_zone(pods: list, nodes: dict) -> dict:
         if phase == 'Succeeded':
             # ignore completed jobs
             continue
-        node = nodes.get(pod.obj['spec'].get('nodeName'))
+        node_name = pod.obj['spec'].get('nodeName')
+        node = nodes.get(node_name)
         if node:
             asg_name = node['asg_name']
             zone = node['zone']
         else:
+            if node_name and phase in ('Running', 'Unknown'):
+                # ignore killed "ghost" pods
+                # (pod is still returned by API, but node was terminated)
+                continue
             # pod is unassigned/pending
             asg_name = 'unknown'
             # TODO: we actually might know the AZ by looking at volumes..
