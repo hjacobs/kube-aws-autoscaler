@@ -257,10 +257,16 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: 
             logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
                         asg_name, desired_capacity, asg['MinSize']))
             desired_capacity = asg['MinSize']
-        if desired_capacity < asg['DesiredCapacity'] and scaling_activity_in_progress(autoscaling, asg_name):
-            logger.info('Scaling activity in progress for ASG {}, not scaling down from {} to {}'.format(
-                        asg_name, asg['DesiredCapacity'], desired_capacity))
-            desired_capacity = asg['DesiredCapacity']
+        if desired_capacity < asg['DesiredCapacity']:
+            # potential scale down, let's check if it is safe..
+            if ready_nodes_by_asg.get(asg_name) < asg['DesiredCapacity']:
+                logger.info('Some nodes are not ready in ASG {}, not scaling down from {} to {}'.format(
+                            asg_name, asg['DesiredCapacity'], desired_capacity))
+                desired_capacity = asg['DesiredCapacity']
+            elif scaling_activity_in_progress(autoscaling, asg_name):
+                logger.info('Scaling activity in progress for ASG {}, not scaling down from {} to {}'.format(
+                            asg_name, asg['DesiredCapacity'], desired_capacity))
+                desired_capacity = asg['DesiredCapacity']
         if desired_capacity != asg['DesiredCapacity']:
             logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
                         asg_name, asg['DesiredCapacity'], desired_capacity))

@@ -175,6 +175,23 @@ def test_resize_auto_scaling_groups_activity_in_progress(monkeypatch):
     autoscaling.set_desired_capacity.assert_not_called()
 
 
+def test_resize_auto_scaling_groups_nodes_not_ready(monkeypatch):
+    monkeypatch.setattr('kube_aws_autoscaler.main.scaling_activity_in_progress', lambda a, b: False)
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_groups.return_value = {
+        'AutoScalingGroups': [{
+            'AutoScalingGroupName': 'asg1',
+            'DesiredCapacity': 3,
+            'MinSize': 2,
+            'MaxSize': 10
+        }]
+    }
+    asg_size = {'asg1': 2}
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
+    autoscaling.set_desired_capacity.assert_not_called()
+
+
 def test_activity_in_progress():
     autoscaling = MagicMock()
     autoscaling.describe_scaling_activities.return_value = {
