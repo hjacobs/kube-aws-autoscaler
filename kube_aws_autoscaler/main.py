@@ -217,6 +217,19 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
     return asg_size
 
 
+def scaling_activity_in_progress(autoscaling, asg_name: str):
+    '''
+    Return True if the given Auto Scaling Group currently has some activity in progress
+    (e.g. replacing an instance, waiting for ELB draining or waiting for instance shut down)
+    '''
+    result = autoscaling.describe_scaling_activities(AutoScalingGroupName=asg_name, MaxRecords=20)
+    for activity in result['Activities']:
+        # "Progress" is a % value between 0 and 100 that indicates the progress of the activity.
+        if activity['Progress'] < 100:
+            return True
+    return False
+
+
 def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False):
     asgs = {}
     response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
@@ -233,6 +246,10 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False)
             logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
                         asg_name, desired_capacity, asg['MinSize']))
             desired_capacity = asg['MinSize']
+        if desired_capacity < asg['DesiredCapacity'] and scaling_activity_in_progress(autoscaling, asg_name):
+            logger.info('Scaling activity in progress for ASG {}, not scaling down from {} to {}'.format(
+                        asg_name, asg['DesiredCapacity'], desired_capacity))
+            desired_capacity = asg['DesiredCapacity']
         if desired_capacity != asg['DesiredCapacity']:
             logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
                         asg_name, asg['DesiredCapacity'], desired_capacity))

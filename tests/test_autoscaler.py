@@ -10,6 +10,7 @@ from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       get_nodes_by_asg_zone, is_sufficient,
                                       main, parse_resource,
                                       resize_auto_scaling_groups,
+                                      scaling_activity_in_progress,
                                       slow_down_downscale)
 
 
@@ -150,6 +151,43 @@ def test_resize_auto_scaling_groups_to_min_max():
     asg_size = {'asg1': 18}
     resize_auto_scaling_groups(autoscaling, asg_size)
     autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=10)
+
+
+def test_resize_auto_scaling_groups_activity_in_progress(monkeypatch):
+    monkeypatch.setattr('kube_aws_autoscaler.main.scaling_activity_in_progress', lambda a, b: True)
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_groups.return_value = {
+        'AutoScalingGroups': [{
+            'AutoScalingGroupName': 'asg1',
+            'DesiredCapacity': 3,
+            'MinSize': 2,
+            'MaxSize': 10
+        }]
+    }
+    asg_size = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size)
+    autoscaling.set_desired_capacity.assert_not_called()
+
+
+def test_activity_in_progress():
+    autoscaling = MagicMock()
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': []
+    }
+    assert not scaling_activity_in_progress(autoscaling, 'my-asg')
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': [{
+            'Progress': 100
+        }]
+    }
+    assert not scaling_activity_in_progress(autoscaling, 'my-asg')
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': [
+            {'Progress': 100},
+            {'Progress': 67}
+        ]
+    }
+    assert scaling_activity_in_progress(autoscaling, 'my-asg')
 
 
 def test_get_nodes(monkeypatch):
