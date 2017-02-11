@@ -133,6 +133,25 @@ def test_resize_auto_scaling_groups_constraints():
     autoscaling.set_desired_capacity.assert_not_called()
 
 
+def test_resize_auto_scaling_groups_to_min_max():
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_groups.return_value = {
+        'AutoScalingGroups': [{
+            'AutoScalingGroupName': 'asg1',
+            'DesiredCapacity': 3,
+            'MinSize': 2,
+            'MaxSize': 10
+        }]
+    }
+    asg_size = {'asg1': 1}
+    resize_auto_scaling_groups(autoscaling, asg_size)
+    autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=2)
+
+    asg_size = {'asg1': 18}
+    resize_auto_scaling_groups(autoscaling, asg_size)
+    autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=10)
+
+
 def test_get_nodes(monkeypatch):
     node = MagicMock()
     node.name = 'n1'
