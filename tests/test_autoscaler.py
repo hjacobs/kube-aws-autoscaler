@@ -7,9 +7,10 @@ from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       calculate_required_auto_scaling_group_sizes,
                                       calculate_usage_by_asg_zone,
                                       format_resource, get_kube_api, get_nodes,
-                                      get_nodes_by_asg_zone, is_sufficient,
-                                      main, parse_resource,
+                                      get_nodes_by_asg_zone, is_node_ready,
+                                      is_sufficient, main, parse_resource,
                                       resize_auto_scaling_groups,
+                                      scaling_activity_in_progress,
                                       slow_down_downscale)
 
 
@@ -58,9 +59,16 @@ def test_calculate_required_auto_scaling_group_sizes():
 
 
 def test_calculate_required_auto_scaling_group_sizes_cordon():
-    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False}
+    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'InService'}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 1}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 2}
+
+
+def test_calculate_required_auto_scaling_group_sizes_unschedulable_terminating():
+    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'Terminating'}
+    # do not compensate if the instance is terminating.. (it will probably be replaced by ASG)
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 0}
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
 
 
 def test_get_nodes_by_asg_zone():
@@ -68,15 +76,18 @@ def test_get_nodes_by_asg_zone():
     autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': []}
     assert get_nodes_by_asg_zone(autoscaling, {}) == {}
 
-    autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [{'InstanceId': 'i-1', 'AutoScalingGroupName': 'myasg', 'AvailabilityZone': 'myaz'}]}
-    assert get_nodes_by_asg_zone(autoscaling, {'foo': {'instance_id': 'i-1'}}) == {('myasg', 'myaz'): [{'asg_name': 'myasg', 'instance_id': 'i-1'}]}
+    autoscaling.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [
+        {'InstanceId': 'i-1', 'AutoScalingGroupName': 'myasg', 'AvailabilityZone': 'myaz', 'LifecycleState': 'InService'}
+    ]}
+    expected_result = {('myasg', 'myaz'): [{'asg_name': 'myasg', 'instance_id': 'i-1', 'asg_lifecycle_state': 'InService'}]}
+    assert get_nodes_by_asg_zone(autoscaling, {'foo': {'instance_id': 'i-1'}}) == expected_result
 
 
 def test_resize_auto_scaling_groups_empty():
     autoscaling = MagicMock()
     autoscaling.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': []}
     asg_size = {}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    resize_auto_scaling_groups(autoscaling, asg_size, {})
     autoscaling.set_desired_capacity.assert_not_called()
 
 
@@ -91,7 +102,8 @@ def test_resize_auto_scaling_groups_downscale():
         }]
     }
     asg_size = {'asg1': 1}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=1)
 
 
@@ -106,11 +118,12 @@ def test_resize_auto_scaling_groups_nochange():
         }]
     }
     asg_size = {'asg1': 2}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_not_called()
 
     asg_size = {'asg1': 1}
-    resize_auto_scaling_groups(autoscaling, asg_size, dry_run=True)
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes, dry_run=True)
     autoscaling.set_desired_capacity.assert_not_called()
 
 
@@ -125,11 +138,13 @@ def test_resize_auto_scaling_groups_constraints():
         }]
     }
     asg_size = {'asg1': 1}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_not_called()
 
     asg_size = {'asg1': 3}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_not_called()
 
 
@@ -144,12 +159,68 @@ def test_resize_auto_scaling_groups_to_min_max():
         }]
     }
     asg_size = {'asg1': 1}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    ready_nodes = {'asg1': 3}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=2)
 
     asg_size = {'asg1': 18}
-    resize_auto_scaling_groups(autoscaling, asg_size)
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
     autoscaling.set_desired_capacity.assert_called_with(AutoScalingGroupName='asg1', DesiredCapacity=10)
+
+
+def test_resize_auto_scaling_groups_activity_in_progress(monkeypatch):
+    monkeypatch.setattr('kube_aws_autoscaler.main.scaling_activity_in_progress', lambda a, b: True)
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_groups.return_value = {
+        'AutoScalingGroups': [{
+            'AutoScalingGroupName': 'asg1',
+            'DesiredCapacity': 3,
+            'MinSize': 2,
+            'MaxSize': 10
+        }]
+    }
+    asg_size = {'asg1': 2}
+    ready_nodes = {'asg1': 3}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
+    autoscaling.set_desired_capacity.assert_not_called()
+
+
+def test_resize_auto_scaling_groups_nodes_not_ready(monkeypatch):
+    monkeypatch.setattr('kube_aws_autoscaler.main.scaling_activity_in_progress', lambda a, b: False)
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_groups.return_value = {
+        'AutoScalingGroups': [{
+            'AutoScalingGroupName': 'asg1',
+            'DesiredCapacity': 3,
+            'MinSize': 2,
+            'MaxSize': 10
+        }]
+    }
+    asg_size = {'asg1': 2}
+    ready_nodes = {'asg1': 2}
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes)
+    autoscaling.set_desired_capacity.assert_not_called()
+
+
+def test_activity_in_progress():
+    autoscaling = MagicMock()
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': []
+    }
+    assert not scaling_activity_in_progress(autoscaling, 'my-asg')
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': [{
+            'Progress': 100
+        }]
+    }
+    assert not scaling_activity_in_progress(autoscaling, 'my-asg')
+    autoscaling.describe_scaling_activities.return_value = {
+        'Activities': [
+            {'Progress': 100},
+            {'Progress': 67}
+        ]
+    }
+    assert scaling_activity_in_progress(autoscaling, 'my-asg')
 
 
 def test_get_nodes(monkeypatch):
@@ -173,6 +244,7 @@ def test_get_nodes(monkeypatch):
         'name': 'n1',
         'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
         'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+        'ready': False,
         'unschedulable': False,
         'master': False}}
 
@@ -193,6 +265,7 @@ def test_autoscale(monkeypatch):
                 'name': 'n1',
                 'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
                 'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'ready': True,
                 'unschedulable': False,
                 'master': False}}
     get_pods = MagicMock()
@@ -200,7 +273,9 @@ def test_autoscale(monkeypatch):
     pod.obj = {'status': {}, 'spec': {'nodeName': 'n1', 'containers': [{'name': 'c1', 'resources': {'requests': {'cpu': '4000m'}}}]}}
     get_pods.return_value = [pod]
     boto3_client = MagicMock()
-    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [{'InstanceId': 'i-123', 'AutoScalingGroupName': 'a1', 'AvailabilityZone': 'eu-north-1a'}]}
+    boto3_client.return_value.describe_auto_scaling_instances.return_value = {'AutoScalingInstances': [
+        {'InstanceId': 'i-123', 'AutoScalingGroupName': 'a1', 'AvailabilityZone': 'eu-north-1a', 'LifecycleState': 'InService'}
+    ]}
     boto3_client.return_value.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': [{'AutoScalingGroupName': 'a1', 'DesiredCapacity': 1, 'MinSize': 1, 'MaxSize': 10}]}
     monkeypatch.setattr('pykube.KubeConfig', kube_config)
     monkeypatch.setattr('pykube.HTTPClient', MagicMock())
@@ -221,6 +296,7 @@ def test_autoscale_node_without_asg(monkeypatch):
                 'name': 'n1',
                 'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
                 'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'ready': True,
                 'unschedulable': False,
                 'master': False}}
     get_pods = MagicMock()
@@ -272,3 +348,13 @@ def test_slow_down_downscale():
     # scale down
     assert slow_down_downscale({'a1': 1}, {('a1', 'z1'): [{}, {}]}) == {'a1': 1}
     assert slow_down_downscale({'a1': 1}, {('a1', 'z1'): [{}, {}, {}]}) == {'a1': 2}
+
+
+def test_is_node_ready():
+    node = MagicMock()
+    node.obj = {'status': {}}
+    assert not is_node_ready(node)
+    node.obj = {'status': {'conditions': [{'type': 'Ready', 'status': 'False'}]}}
+    assert not is_node_ready(node)
+    node.obj = {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+    assert is_node_ready(node)

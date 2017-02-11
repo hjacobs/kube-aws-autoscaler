@@ -70,6 +70,16 @@ def is_sufficient(requested: dict, capacity: dict):
     return True
 
 
+def is_node_ready(node):
+    '''
+    Return whether the given pykube Node has "Ready" status
+    '''
+    for condition in node.obj['status'].get('conditions', []):
+        if condition['type'] == 'Ready' and condition['status'] == 'True':
+            return True
+    return False
+
+
 def get_nodes(api) -> dict:
     nodes = {}
     for node in pykube.Node.objects(api):
@@ -83,6 +93,7 @@ def get_nodes(api) -> dict:
         obj = {'name': node.name,
                'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type,
                'capacity': capacity,
+               'ready': is_node_ready(node),
                'unschedulable': node.obj['spec'].get('unschedulable', False),
                'master': node.labels.get('master', 'false') == 'true'}
         nodes[node.name] = obj
@@ -100,6 +111,7 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
     response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
     for instance in response['AutoScalingInstances']:
         instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
+        instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
         key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
         nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
     return nodes_by_asg_zone
@@ -191,7 +203,9 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
             required_nodes += 1
 
         for node in nodes:
-            if node['unschedulable'] and not node['master']:
+            # compensate any manually cordoned nodes (e.g. by kubectl drain)
+            # but only if they are "in service", i.e. not being terminated by ASG right now
+            if node['unschedulable'] and not node['master'] and node['asg_lifecycle_state'] == 'InService':
                 logger.info('Node {} is marked as unschedulable, compensating.'.format(node['name']))
                 required_nodes += 1
 
@@ -217,7 +231,20 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
     return asg_size
 
 
-def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False):
+def scaling_activity_in_progress(autoscaling, asg_name: str):
+    '''
+    Return True if the given Auto Scaling Group currently has some activity in progress
+    (e.g. replacing an instance, waiting for ELB draining or waiting for instance shut down)
+    '''
+    result = autoscaling.describe_scaling_activities(AutoScalingGroupName=asg_name, MaxRecords=20)
+    for activity in result['Activities']:
+        # "Progress" is a % value between 0 and 100 that indicates the progress of the activity.
+        if activity['Progress'] < 100:
+            return True
+    return False
+
+
+def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: dict, dry_run: bool=False):
     asgs = {}
     response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
     for asg in response['AutoScalingGroups']:
@@ -233,6 +260,16 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False)
             logger.warn('Desired capacity for ASG {} is {}, but is lower than min {}'.format(
                         asg_name, desired_capacity, asg['MinSize']))
             desired_capacity = asg['MinSize']
+        if desired_capacity < asg['DesiredCapacity']:
+            # potential scale down, let's check if it is safe..
+            if ready_nodes_by_asg.get(asg_name) < asg['DesiredCapacity']:
+                logger.info('Some nodes are not ready in ASG {}, not scaling down from {} to {}'.format(
+                            asg_name, asg['DesiredCapacity'], desired_capacity))
+                desired_capacity = asg['DesiredCapacity']
+            elif scaling_activity_in_progress(autoscaling, asg_name):
+                logger.info('Scaling activity in progress for ASG {}, not scaling down from {} to {}'.format(
+                            asg_name, asg['DesiredCapacity'], desired_capacity))
+                desired_capacity = asg['DesiredCapacity']
         if desired_capacity != asg['DesiredCapacity']:
             logger.info('Changing desired capacity for ASG {} from {} to {}..'.format(
                         asg_name, asg['DesiredCapacity'], desired_capacity))
@@ -260,6 +297,16 @@ def get_nodes_by_name(nodes: list):
     return nodes_by_name
 
 
+def get_ready_nodes_by_asg(nodes_by_asg_zone):
+    ready_nodes_by_asg = collections.defaultdict(int)
+    for key, nodes in sorted(nodes_by_asg_zone.items()):
+        asg_name, _ = key
+        for node in nodes:
+            if node['ready']:
+                ready_nodes_by_asg[asg_name] += 1
+    return ready_nodes_by_asg
+
+
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     api = get_kube_api()
 
@@ -276,7 +323,8 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
-    resize_auto_scaling_groups(autoscaling, asg_size, dry_run)
+    ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
 
 
 def main():
