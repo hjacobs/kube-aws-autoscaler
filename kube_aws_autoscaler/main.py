@@ -70,6 +70,16 @@ def is_sufficient(requested: dict, capacity: dict):
     return True
 
 
+def is_node_ready(node):
+    '''
+    Return whether the given pykube Node has "Ready" status
+    '''
+    for condition in node.obj['status'].get('conditions', []):
+        if condition['type'] == 'Ready' and condition['status'] == 'True':
+            return True
+    return False
+
+
 def get_nodes(api) -> dict:
     nodes = {}
     for node in pykube.Node.objects(api):
@@ -83,6 +93,7 @@ def get_nodes(api) -> dict:
         obj = {'name': node.name,
                'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type,
                'capacity': capacity,
+               'ready': is_node_ready(node),
                'unschedulable': node.obj['spec'].get('unschedulable', False),
                'master': node.labels.get('master', 'false') == 'true'}
         nodes[node.name] = obj
@@ -230,7 +241,7 @@ def scaling_activity_in_progress(autoscaling, asg_name: str):
     return False
 
 
-def resize_auto_scaling_groups(autoscaling, asg_size: dict, dry_run: bool=False):
+def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: dict, dry_run: bool=False):
     asgs = {}
     response = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asg_size.keys()))
     for asg in response['AutoScalingGroups']:
@@ -277,6 +288,16 @@ def get_nodes_by_name(nodes: list):
     return nodes_by_name
 
 
+def get_ready_nodes_by_asg(nodes_by_asg_zone):
+    ready_nodes_by_asg = collections.defaultdict(int)
+    for key, nodes in sorted(nodes_by_asg_zone.items()):
+        asg_name, _ = key
+        for node in nodes:
+            if node['ready']:
+                ready_nodes_by_asg[asg_name] += 1
+    return ready_nodes_by_asg
+
+
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     api = get_kube_api()
 
@@ -293,7 +314,8 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
-    resize_auto_scaling_groups(autoscaling, asg_size, dry_run)
+    ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
+    resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
 
 
 def main():
