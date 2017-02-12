@@ -66,20 +66,20 @@ def test_calculate_usage_by_asg_zone():
 
 def test_calculate_required_auto_scaling_group_sizes():
     assert calculate_required_auto_scaling_group_sizes({}, {}, {}, {}) == {}
-    node = {'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': False, 'master': False}
+    node = {'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': False, 'master': False}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 0}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('unknown', 'unknown'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
 
 
 def test_calculate_required_auto_scaling_group_sizes_cordon():
-    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'InService'}
+    node = {'name': 'mynode', 'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'InService'}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 1}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 2}
 
 
 def test_calculate_required_auto_scaling_group_sizes_unschedulable_terminating():
-    node = {'name': 'mynode', 'capacity': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'Terminating'}
+    node = {'name': 'mynode', 'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'Terminating'}
     # do not compensate if the instance is terminating.. (it will probably be replaced by ASG)
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 0}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {('a1', 'z1'): {'cpu': 1, 'memory': 1, 'pods': 1}}, {}, {}) == {'a1': 1}
@@ -246,7 +246,7 @@ def test_get_nodes(monkeypatch):
         'beta.kubernetes.io/instance-type': 'x1.mega'
     }
     node.obj = {
-        'status': {'capacity': {'cpu': '2', 'memory': '16Gi', 'pods': '10'}},
+        'status': {'allocatable': {'cpu': '2', 'memory': '16Gi', 'pods': '10'}},
         'spec': {'externalID': 'i-123'}
     }
 
@@ -257,7 +257,7 @@ def test_get_nodes(monkeypatch):
     assert get_nodes(api) == {'n1': {
         'name': 'n1',
         'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
-        'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+        'allocatable': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
         'ready': False,
         'unschedulable': False,
         'master': False}}
@@ -278,7 +278,7 @@ def test_autoscale(monkeypatch):
     get_nodes.return_value = {'n1': {
                 'name': 'n1',
                 'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
-                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'allocatable': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
                 'ready': True,
                 'unschedulable': False,
                 'master': False}}
@@ -309,7 +309,7 @@ def test_autoscale_node_without_asg(monkeypatch):
     get_nodes.return_value = {'n1': {
                 'name': 'n1',
                 'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
-                'capacity': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+                'allocatable': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
                 'ready': True,
                 'unschedulable': False,
                 'master': False}}

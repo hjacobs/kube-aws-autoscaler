@@ -47,9 +47,9 @@ def parse_resource(v: str):
     return int(match.group(1)) * factor
 
 
-def get_node_capacity_tuple(node: dict):
-    capacity = node['capacity']
-    return tuple(capacity[resource] for resource in RESOURCES)
+def get_node_allocatable_tuple(node: dict):
+    allocatable = node['allocatable']
+    return tuple(allocatable[resource] for resource in RESOURCES)
 
 
 def apply_buffer(requested: dict, buffer_percentage: dict, buffer_fixed: dict):
@@ -60,11 +60,11 @@ def apply_buffer(requested: dict, buffer_percentage: dict, buffer_fixed: dict):
 
 
 def find_weakest_node(nodes):
-    return sorted(nodes, key=get_node_capacity_tuple)[0]
+    return sorted(nodes, key=get_node_allocatable_tuple)[0]
 
 
-def is_sufficient(requested: dict, capacity: dict):
-    for resource, cap in capacity.items():
+def is_sufficient(requested: dict, allocatable: dict):
+    for resource, cap in allocatable.items():
         if requested.get(resource, 0) > cap:
             return False
     return True
@@ -86,13 +86,15 @@ def get_nodes(api) -> dict:
         region = node.labels['failure-domain.beta.kubernetes.io/region']
         zone = node.labels['failure-domain.beta.kubernetes.io/zone']
         instance_type = node.labels['beta.kubernetes.io/instance-type']
-        capacity = {}
-        for key, val in node.obj['status']['capacity'].items():
-            capacity[key] = parse_resource(val)
+        allocatable = {}
+        # Use the Node Allocatable Resources to account for any kube/system reservations:
+        # https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
+        for key, val in node.obj['status']['allocatable'].items():
+            allocatable[key] = parse_resource(val)
         instance_id = node.obj['spec']['externalID']
         obj = {'name': node.name,
                'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type,
-               'capacity': capacity,
+               'allocatable': allocatable,
                'ready': is_node_ready(node),
                'unschedulable': node.obj['spec'].get('unschedulable', False),
                'master': node.labels.get('master', 'false') == 'true'}
@@ -201,10 +203,10 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
         requested_with_buffer = apply_buffer(requested, buffer_percentage, buffer_fixed)
         weakest_node = find_weakest_node(nodes)
         required_nodes = 0
-        capacity = {resource: 0 for resource in RESOURCES}
-        while not is_sufficient(requested_with_buffer, capacity):
-            for resource in capacity:
-                capacity[resource] += weakest_node['capacity'][resource]
+        allocatable = {resource: 0 for resource in RESOURCES}
+        while not is_sufficient(requested_with_buffer, allocatable):
+            for resource in allocatable:
+                allocatable[resource] += weakest_node['allocatable'][resource]
             required_nodes += 1
 
         for node in nodes:
@@ -215,7 +217,7 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
                 required_nodes += 1
 
         overprovisioned = {resource: 0 for resource in RESOURCES}
-        for resource, value in capacity.items():
+        for resource, value in allocatable.items():
             overprovisioned[resource] = value - requested[resource]
 
         if dump_info:
@@ -226,7 +228,7 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
             logger.info('{}/{}: with buffer:   {}'.format(asg_name, zone,
                         ' '.join([format_resource(requested_with_buffer[r], r).rjust(10) for r in RESOURCES])))
             logger.info('{}/{}: weakest node:  {}'.format(asg_name, zone,
-                        ' '.join([format_resource(weakest_node['capacity'][r], r).rjust(10) for r in RESOURCES])))
+                        ' '.join([format_resource(weakest_node['allocatable'][r], r).rjust(10) for r in RESOURCES])))
             logger.info('{}/{}: overprovision: {}'.format(asg_name, zone,
                         ' '.join([format_resource(overprovisioned[r], r).rjust(10) for r in RESOURCES])))
             logger.info('{}/{}: => {} nodes required (current: {})'.format(asg_name, zone, required_nodes, len(nodes)))
