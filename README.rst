@@ -21,6 +21,8 @@ Goals:
 * respect Availability Zones, i.e. make sure that all AZs provide enough capacity
 * be deterministic and predictable, i.e. the ``DesiredCapacity`` is only calculated based on the current cluster state
 * scale down slowly to mitigate service disruptions, i.e. at most one node at a time
+* support "elastic" workloads like daily up/down scaling
+* support AWS Spot Fleet (not yet implemented)
 * require a minimum amount of configuration (preferably none)
 * keep it simple
 
@@ -31,6 +33,13 @@ This hack was created as a proof of concept and born out of frustration with the
 * it does not support multiple Auto Scaling Groups
 * it requires unnecessary configuration
 * the code is quite complex
+
+Disclaimer
+==========
+
+** Use at your own risk! **
+This autoscaler was only tested with Kubernetes version 1.5.2.
+There is no guarantee that it works in previous Kubernetes versions.
 
 
 How it works
@@ -48,7 +57,7 @@ The ``autoscale`` function performs the following task:
   * iterate through every ASG/AZ combination
   * use the calculated resource usage (sum of resource requests) and add the resource requests of any unassigned pods (pods not scheduled on any node yet)
   * apply the configured buffer values (10% extra for CPU and memory by default)
-  * find the capacity of the weakest node
+  * find the `allocatable capacity`_ of the weakest node
   * calculate the number of required nodes by adding up the capacity of the weakest node until the sum is greater than or equal to requested+buffer for both CPU and memory
   * sum up the number of required nodes from all AZ for the ASG
 
@@ -99,3 +108,4 @@ The following command line options are supported:
 
 
 .. _"official" cluster-autoscaler: https://github.com/kubernetes/contrib/tree/master/cluster-autoscaler
+.. _allocatable capacity: https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
