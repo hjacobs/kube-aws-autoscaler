@@ -87,7 +87,9 @@ def get_nodes(api) -> dict:
         zone = node.labels['failure-domain.beta.kubernetes.io/zone']
         instance_type = node.labels['beta.kubernetes.io/instance-type']
         capacity = {}
-        for key, val in node.obj['status']['capacity'].items():
+        # Use the Node Allocatable Resources to account for any kube/system reservations:
+        # https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
+        for key, val in node.obj['status']['allocatable'].items():
             capacity[key] = parse_resource(val)
         instance_id = node.obj['spec']['externalID']
         obj = {'name': node.name,

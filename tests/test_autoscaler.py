@@ -246,7 +246,7 @@ def test_get_nodes(monkeypatch):
         'beta.kubernetes.io/instance-type': 'x1.mega'
     }
     node.obj = {
-        'status': {'capacity': {'cpu': '2', 'memory': '16Gi', 'pods': '10'}},
+        'status': {'allocatable': {'cpu': '2', 'memory': '16Gi', 'pods': '10'}},
         'spec': {'externalID': 'i-123'}
     }
 
