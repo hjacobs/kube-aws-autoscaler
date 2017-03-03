@@ -49,7 +49,7 @@ The autoscaler consists of a simple main loop which calls the ``autoscale`` func
 The main loop keeps no state (like history), all input for the ``autoscale`` function comes from either static configuration or the Kubernetes API server.
 The ``autoscale`` function performs the following task:
 
-* retrieve the list of all nodes from the Kubernetes API and group them by Auto Scaling Group (ASG) and Availability Zone (AZ)
+* retrieve the list of all (worker) nodes from the Kubernetes API and group them by Auto Scaling Group (ASG) and Availability Zone (AZ)
 * retrieve the list of all pods from the Kubernetes API
 * calculate the current resource "usage" for every ASG and AZ by summing up all pod resource requests (CPU, memory and number of pods)
 * calculates the currently required number of nodes per AWS Auto Scaling Group:
