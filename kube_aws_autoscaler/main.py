@@ -353,7 +353,7 @@ def main():
                             help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
     logging.getLogger('botocore').setLevel(logging.WARN)
 
     buffer_percentage = {}
