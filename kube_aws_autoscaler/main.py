@@ -187,7 +187,8 @@ def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
     return asg_sizes
 
 
-def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict, buffer_percentage: dict, buffer_fixed: dict):
+def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict,
+                                                buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0):
     asg_size = collections.defaultdict(int)
 
     dump_info = STATS.get('last_info_dump', 0) < (time.time() - 600)
@@ -215,6 +216,8 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
             if node['unschedulable'] and not node['master'] and node['asg_lifecycle_state'] == 'InService':
                 logger.info('Node {} is marked as unschedulable, compensating.'.format(node['name']))
                 required_nodes += 1
+
+        required_nodes += buffer_spare_nodes
 
         overprovisioned = {resource: 0 for resource in RESOURCES}
         for resource, value in allocatable.items():
@@ -314,7 +317,7 @@ def get_ready_nodes_by_asg(nodes_by_asg_zone):
     return ready_nodes_by_asg
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, dry_run: bool=False):
     api = get_kube_api()
 
     all_nodes = get_nodes(api)
@@ -328,7 +331,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, dry_run: bool):
     pods = pykube.Pod.objects(api, namespace=pykube.all)
 
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
-    asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed)
+    asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed, buffer_spare_nodes)
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
@@ -341,6 +344,8 @@ def main():
     parser.add_argument('--debug', '-d', help='Debug mode: print more information', action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval', default=60)
+    parser.add_argument('--buffer-spare-nodes', type=int,
+                        help='Number of extra "spare" nodes to provision per ASG/AZ', default=1)
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
                             help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
@@ -362,7 +367,8 @@ def main():
 
     while True:
         try:
-            autoscale(buffer_percentage, buffer_fixed, dry_run=args.dry_run)
+            autoscale(buffer_percentage, buffer_fixed, buffer_spare_nodes=args.buffer_spare_nodes,
+                      dry_run=args.dry_run)
         except:
             logger.exception('Failed to autoscale')
         if args.once:
