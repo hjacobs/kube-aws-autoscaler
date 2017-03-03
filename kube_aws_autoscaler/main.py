@@ -343,9 +343,9 @@ def main():
                         action='store_true')
     parser.add_argument('--debug', '-d', help='Debug mode: print more information', action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
-    parser.add_argument('--interval', type=int, help='Loop interval', default=60)
+    parser.add_argument('--interval', type=int, help='Loop interval (default: 60s)', default=60)
     parser.add_argument('--buffer-spare-nodes', type=int,
-                        help='Number of extra "spare" nodes to provision per ASG/AZ', default=1)
+                        help='Number of extra "spare" nodes to provision per ASG/AZ (default: 1)', default=1)
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
                             help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
