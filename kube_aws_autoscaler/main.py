@@ -80,7 +80,7 @@ def is_node_ready(node):
     return False
 
 
-def get_nodes(api) -> dict:
+def get_nodes(api, include_master_nodes: bool=False) -> dict:
     nodes = {}
     for node in pykube.Node.objects(api):
         region = node.labels['failure-domain.beta.kubernetes.io/region']
@@ -98,7 +98,8 @@ def get_nodes(api) -> dict:
                'ready': is_node_ready(node),
                'unschedulable': node.obj['spec'].get('unschedulable', False),
                'master': node.labels.get('master', 'false') == 'true'}
-        nodes[node.name] = obj
+        if include_master_nodes or not obj['master']:
+            nodes[node.name] = obj
     return nodes
 
 
@@ -317,10 +318,10 @@ def get_ready_nodes_by_asg(nodes_by_asg_zone):
     return ready_nodes_by_asg
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, dry_run: bool=False):
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, include_master_nodes: bool=False, dry_run: bool=False):
     api = get_kube_api()
 
-    all_nodes = get_nodes(api)
+    all_nodes = get_nodes(api, include_master_nodes)
     region = list(all_nodes.values())[0]['region']
 
     autoscaling = boto3.client('autoscaling', region)
@@ -344,6 +345,8 @@ def main():
     parser.add_argument('--debug', '-d', help='Debug mode: print more information', action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval (default: 60s)', default=60)
+    parser.add_argument('--include-master-nodes', help='Do not ignore auto scaling group with master nodes',
+                        action='store_true')
     parser.add_argument('--buffer-spare-nodes', type=int,
                         help='Number of extra "spare" nodes to provision per ASG/AZ (default: 1)', default=1)
     for resource in RESOURCES:
@@ -368,7 +371,7 @@ def main():
     while True:
         try:
             autoscale(buffer_percentage, buffer_fixed, buffer_spare_nodes=args.buffer_spare_nodes,
-                      dry_run=args.dry_run)
+                      include_master_nodes=args.include_master_nodes, dry_run=args.dry_run)
         except:
             logger.exception('Failed to autoscale')
         if args.once:

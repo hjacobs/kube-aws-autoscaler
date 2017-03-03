@@ -251,8 +251,21 @@ def test_get_nodes(monkeypatch):
         'spec': {'externalID': 'i-123'}
     }
 
+    master = MagicMock()
+    master.name = 'master'
+    master.labels = {
+        'failure-domain.beta.kubernetes.io/region': 'eu-north-1',
+        'failure-domain.beta.kubernetes.io/zone': 'eu-north-1a',
+        'beta.kubernetes.io/instance-type': 'a1.small',
+        'master': 'true'
+    }
+    master.obj = {
+        'status': {'allocatable': {'cpu': '2', 'memory': '16Gi', 'pods': '10'}},
+        'spec': {'externalID': 'i-456'}
+    }
+
     objects = MagicMock()
-    objects.return_value = [node]
+    objects.return_value = [node, master]
     monkeypatch.setattr('pykube.Node.objects', objects)
     api = MagicMock()
     assert get_nodes(api) == {'n1': {
@@ -262,6 +275,21 @@ def test_get_nodes(monkeypatch):
         'ready': False,
         'unschedulable': False,
         'master': False}}
+
+    assert get_nodes(api, include_master_nodes=True) == {'n1': {
+        'name': 'n1',
+        'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-123', 'instance_type': 'x1.mega',
+        'allocatable': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+        'ready': False,
+        'unschedulable': False,
+        'master': False}, 'master': {
+            'name': 'master',
+            'region': 'eu-north-1', 'zone': 'eu-north-1a', 'instance_id': 'i-456', 'instance_type': 'a1.small',
+            'allocatable': {'cpu': 2, 'memory': 16*1024*1024*1024, 'pods': 10},
+            'ready': False,
+            'unschedulable': False,
+            'master': True
+         }}
 
 
 def test_get_kube_api(monkeypatch):
@@ -337,7 +365,7 @@ def test_main(monkeypatch):
     monkeypatch.setattr('kube_aws_autoscaler.main.autoscale', autoscale)
     monkeypatch.setattr('sys.argv', ['foo', '--once', '--dry-run'])
     main()
-    autoscale.assert_called_once_with({'memory': 10, 'pods': 10, 'cpu': 10}, {'memory': 209715200, 'pods': 10, 'cpu': 0.2}, buffer_spare_nodes=1, dry_run=True)
+    autoscale.assert_called_once_with({'memory': 10, 'pods': 10, 'cpu': 10}, {'memory': 209715200, 'pods': 10, 'cpu': 0.2}, buffer_spare_nodes=1, include_master_nodes=False, dry_run=True)
 
     autoscale.side_effect = ValueError
 
