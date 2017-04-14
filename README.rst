@@ -10,8 +10,6 @@ Kubernetes AWS Cluster Autoscaler
    :target: https://coveralls.io/github/hjacobs/kube-aws-autoscaler?branch=master
    :alt: Code Coverage
 
-** THIS IS A PROOF OF CONCEPT - WORK IN PROGRESS **
-
 Simple cluster autoscaler for AWS Auto Scaling Groups which sets the ``DesiredCapacity`` of one or more ASGs to the calculated number of nodes.
 
 Goals:
@@ -38,7 +36,7 @@ Disclaimer
 ==========
 
 ** Use at your own risk! **
-This autoscaler was only tested with Kubernetes version 1.5.2.
+This autoscaler was only tested with Kubernetes version 1.5.2 and 1.6.1.
 There is no guarantee that it works in previous Kubernetes versions.
 
 
