@@ -358,12 +358,15 @@ def main():
     parser.add_argument('--include-master-nodes', help='Do not ignore auto scaling group with master nodes',
                         action='store_true')
     parser.add_argument('--buffer-spare-nodes', type=int,
-                        help='Number of extra "spare" nodes to provision per ASG/AZ (default: 1)', default=1)
+                        help='Number of extra "spare" nodes to provision per ASG/AZ (default: 1)',
+                        default=os.getenv('BUFFER_SPARE_NODES', 1))
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
-                            help='{} buffer %%'.format(resource.capitalize()), default=DEFAULT_BUFFER_PERCENTAGE[resource])
+                            help='{} buffer %%'.format(resource.capitalize()),
+                            default=os.getenv('BUFFER_{}_PERCENTAGE'.format(resource.upper()), DEFAULT_BUFFER_PERCENTAGE[resource]))
         parser.add_argument('--buffer-{}-fixed'.format(resource), type=str,
-                            help='{} buffer (fixed amount)'.format(resource.capitalize()), default=DEFAULT_BUFFER_FIXED[resource])
+                            help='{} buffer (fixed amount)'.format(resource.capitalize()),
+                            default=os.getenv('BUFFER_{}_FIXED'.format(resource.upper()), DEFAULT_BUFFER_FIXED[resource]))
     args = parser.parse_args()
 
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
