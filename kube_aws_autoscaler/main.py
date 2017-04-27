@@ -34,6 +34,9 @@ DEFAULT_CONTAINER_REQUESTS = {'cpu': '10m', 'memory': '50Mi'}
 DEFAULT_BUFFER_PERCENTAGE = {'cpu': 10, 'memory': 10, 'pods': 10}
 DEFAULT_BUFFER_FIXED = {'cpu': '200m', 'memory': '200Mi', 'pods': '10'}
 
+# DescribeAutoScalingInstances operation: The number of instance ids that may be passed in is limited to 50
+DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT = 50
+
 logger = logging.getLogger('autoscaler')
 
 
@@ -103,6 +106,12 @@ def get_nodes(api, include_master_nodes: bool=False) -> dict:
     return nodes
 
 
+def chunks(l: list, n: int):
+    '''Yield successive n-sized chunks from l.'''
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
+
+
 def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
     # first map instance_id to node object for later look up
     instances = {}
@@ -111,12 +120,13 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
 
     nodes_by_asg_zone = collections.defaultdict(list)
 
-    response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
-    for instance in response['AutoScalingInstances']:
-        instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
-        instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
-        key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
-        nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
+    for instance_ids in chunks(list(instances.keys()), DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT):
+        response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
+        for instance in response['AutoScalingInstances']:
+            instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
+            instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
+            key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
+            nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
     return nodes_by_asg_zone
 
 

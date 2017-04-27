@@ -5,7 +5,7 @@ import pytest
 
 from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       calculate_required_auto_scaling_group_sizes,
-                                      calculate_usage_by_asg_zone,
+                                      calculate_usage_by_asg_zone, chunks,
                                       format_resource, get_kube_api, get_nodes,
                                       get_nodes_by_asg_zone, is_node_ready,
                                       is_sufficient, main, parse_resource,
@@ -401,3 +401,10 @@ def test_is_node_ready():
     assert not is_node_ready(node)
     node.obj = {'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
     assert is_node_ready(node)
+
+
+def test_chunks():
+    assert list(chunks([], 1)) == []
+    assert list(chunks([1], 1)) == [[1]]
+    assert list(chunks([1, 2], 1)) == [[1], [2]]
+    assert list(chunks([1, 2, 3], 2)) == [[1, 2], [3]]
