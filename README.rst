@@ -24,7 +24,7 @@ Goals:
 * require a minimum amount of configuration (preferably none)
 * keep it simple
 
-This hack was created as a proof of concept and born out of frustration with the `"official" cluster-autoscaler`_:
+This autoscaler was initially created as a proof of concept and born out of frustration with the `"official" cluster-autoscaler`_:
 
 * it only scales up when "it's too late" (pods are unschedulable)
 * it does not honor Availability Zones
@@ -35,10 +35,12 @@ This hack was created as a proof of concept and born out of frustration with the
 Disclaimer
 ==========
 
-** Use at your own risk! **
+**Use at your own risk!**
 This autoscaler was only tested with Kubernetes version 1.5.2 and 1.6.1.
 There is no guarantee that it works in previous Kubernetes versions.
 
+**Is it production ready?**
+Yes, the ``kube-aws-autoscaler`` is running in production at Zalando for months, see https://github.com/zalando-incubator/kubernetes-on-aws for more information and deployment configuration.
 
 How it works
 ============
