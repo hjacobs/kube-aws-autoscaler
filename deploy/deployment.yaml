@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   labels:
     application: kube-aws-autoscaler
-    version: v0.0.1
+    version: v0.9
   name: kube-aws-autoscaler
 spec:
   replicas: 1
@@ -14,15 +14,14 @@ spec:
     metadata:
       labels:
         application: kube-aws-autoscaler
-        version: v0.0.1
+        version: v0.9
       annotations:
         # FIXME: using hardcoded IAM role
         iam.amazonaws.com/role: kube-1-app-autoscaler
     spec:
       containers:
       - name: autoscaler
-        image: hjacobs/kube-aws-autoscaler
-        imagePullPolicy: Always
+        image: hjacobs/kube-aws-autoscaler:0.9
         resources:
           limits:
             cpu: 200m
