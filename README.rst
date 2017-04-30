@@ -111,5 +111,5 @@ The following command line options are supported:
     Only run once and exit (useful for debugging).
 
 
-.. _"official" cluster-autoscaler: https://github.com/kubernetes/contrib/tree/master/cluster-autoscaler
+.. _"official" cluster-autoscaler: https://github.com/kubernetes/autoscaler
 .. _allocatable capacity: https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
