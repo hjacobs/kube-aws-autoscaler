@@ -36,7 +36,7 @@ Disclaimer
 ==========
 
 **Use at your own risk!**
-This autoscaler was only tested with Kubernetes version 1.5.2 and 1.6.1.
+This autoscaler was only tested with Kubernetes versions 1.5.2 to 1.6.2.
 There is no guarantee that it works in previous Kubernetes versions.
 
 **Is it production ready?**
