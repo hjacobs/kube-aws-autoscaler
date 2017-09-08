@@ -15,8 +15,7 @@ from flask import Flask, jsonify
 from threading import Thread
 
 app = Flask(__name__)
-
-Healthy = True 
+Healthy = True
 
 FACTORS = {
     'm': 1 / 1000,
@@ -305,9 +304,8 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: 
                 logger.info('**DRY-RUN**: not performing any change')
             else:
                 try:
-                    autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
-                                                 DesiredCapacity=desired_capacity)
-                except expression as identifier:
+                    autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name, DesiredCapacity=desired_capacity)
+                except:
                     logger.exception('Failed to set desired capacity {} for ASG {}'.format(desired_capacity, asg_name))
                     raise
 
@@ -350,6 +348,7 @@ def is_healthy():
 def start_health_endpoint():
     app.run(host='0.0.0.0',  port=5000)
 
+
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, include_master_nodes: bool=False, dry_run: bool=False):
     api = get_kube_api()
 
@@ -367,6 +366,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: i
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
+
 
 def main():
     parser = argparse.ArgumentParser()
