@@ -11,6 +11,13 @@ import time
 import boto3
 import pykube
 
+from flask import Flask, jsonify
+from threading import Thread
+
+app = Flask(__name__)
+
+Healthy = True 
+
 FACTORS = {
     'm': 1 / 1000,
     'K': 1000,
@@ -297,8 +304,12 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: 
             if dry_run:
                 logger.info('**DRY-RUN**: not performing any change')
             else:
-                autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
+                try:
+                    autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name,
                                                  DesiredCapacity=desired_capacity)
+                except expression as identifier:
+                    logger.exception('Failed to set desired capacity {} for ASG {}'.format(desired_capacity, asg_name))
+                    raise
 
 
 def get_kube_api():
@@ -328,12 +339,22 @@ def get_ready_nodes_by_asg(nodes_by_asg_zone):
     return ready_nodes_by_asg
 
 
+@app.route('/healthz')
+def is_healthy():
+    if Healthy:
+        return jsonify({'status': 'OK'})
+    else:
+        return jsonify({'status': 'UNHEALTHY'}), 500
+
+
+def start_health_endpoint():
+    app.run(host='0.0.0.0',  port=5000)
+
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, include_master_nodes: bool=False, dry_run: bool=False):
     api = get_kube_api()
 
     all_nodes = get_nodes(api, include_master_nodes)
     region = list(all_nodes.values())[0]['region']
-
     autoscaling = boto3.client('autoscaling', region)
     nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes)
     # we only consider nodes found in an ASG (old "ghost" nodes returned from Kubernetes API are ignored)
@@ -347,7 +368,6 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: i
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', help='Dry run mode: do not change anything, just print what would be done',
@@ -360,6 +380,8 @@ def main():
     parser.add_argument('--buffer-spare-nodes', type=int,
                         help='Number of extra "spare" nodes to provision per ASG/AZ (default: 1)',
                         default=os.getenv('BUFFER_SPARE_NODES', 1))
+    parser.add_argument('--enable-healthcheck-endpoint', help='Enable Healtcheck',
+                        action='store_true')
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
                             help='{} buffer %%'.format(resource.capitalize()),
@@ -381,11 +403,17 @@ def main():
     if args.dry_run:
         logger.info('**DRY-RUN**: no autoscaling will be performed!')
 
+    if args.enable_healthcheck_endpoint:
+        t = Thread(target=start_health_endpoint)
+        t.start()
+
     while True:
         try:
             autoscale(buffer_percentage, buffer_fixed, buffer_spare_nodes=args.buffer_spare_nodes,
                       include_master_nodes=args.include_master_nodes, dry_run=args.dry_run)
         except:
+            global Healthy
+            Healthy = False
             logger.exception('Failed to autoscale')
         if args.once:
             return
