@@ -346,7 +346,7 @@ def is_healthy():
 
 
 def start_health_endpoint():
-    app.run(host='0.0.0.0',  port=5000)
+    app.run(port=5000)
 
 
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, include_master_nodes: bool=False, dry_run: bool=False):
