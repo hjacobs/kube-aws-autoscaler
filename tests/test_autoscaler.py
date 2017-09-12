@@ -1,9 +1,6 @@
 import os
 from unittest.mock import MagicMock
-import unittest
-
 import pytest
-
 from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       calculate_required_auto_scaling_group_sizes,
                                       calculate_usage_by_asg_zone, chunks,
