@@ -1,8 +1,6 @@
 import os
 from unittest.mock import MagicMock
-
 import pytest
-
 from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       calculate_required_auto_scaling_group_sizes,
                                       calculate_usage_by_asg_zone, chunks,
@@ -11,7 +9,7 @@ from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       is_sufficient, main, parse_resource,
                                       resize_auto_scaling_groups,
                                       scaling_activity_in_progress,
-                                      slow_down_downscale)
+                                      slow_down_downscale, app)
 
 
 def test_parse_resource():
@@ -408,3 +406,10 @@ def test_chunks():
     assert list(chunks([1], 1)) == [[1]]
     assert list(chunks([1, 2], 1)) == [[1], [2]]
     assert list(chunks([1, 2, 3], 2)) == [[1, 2], [3]]
+
+
+def test_start_health_endpoint():
+    flask = app.test_client()
+    flask.testing = True
+    response = flask.get('/healthz')
+    assert response.status_code == 500
