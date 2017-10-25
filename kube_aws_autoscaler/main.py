@@ -205,7 +205,8 @@ def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
 
 
 def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_by_asg_zone: dict,
-                                                buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0):
+                                                buffer_percentage: dict, buffer_fixed: dict,
+                                                buffer_spare_nodes: int=0, disable_scale_down: bool=False):
     asg_size = collections.defaultdict(int)
 
     dump_info = STATS.get('last_info_dump', 0) < (time.time() - 600)
@@ -253,6 +254,13 @@ def calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone: dict, usage_b
                         ' '.join([format_resource(overprovisioned[r], r).rjust(10) for r in RESOURCES])))
             logger.info('{}/{}: => {} nodes required (current: {})'.format(asg_name, zone, required_nodes, len(nodes)))
             STATS['last_info_dump'] = time.time()
+
+        if disable_scale_down:
+            current_nodes = len(nodes)
+            if dump_info and current_nodes > required_nodes:
+                logger.info('{}/{}: scaling down is not allowed, forcing {} nodes'.format(asg_name, zone, current_nodes))
+            required_nodes = max(required_nodes, current_nodes)
+
         asg_size[asg_name] += required_nodes
 
     return asg_size
@@ -305,7 +313,7 @@ def resize_auto_scaling_groups(autoscaling, asg_size: dict, ready_nodes_by_asg: 
             else:
                 try:
                     autoscaling.set_desired_capacity(AutoScalingGroupName=asg_name, DesiredCapacity=desired_capacity)
-                except:
+                except Exception:
                     logger.exception('Failed to set desired capacity {} for ASG {}'.format(desired_capacity, asg_name))
                     raise
 
@@ -349,20 +357,23 @@ def start_health_endpoint():
     app.run(port=5000)
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0, include_master_nodes: bool=False, dry_run: bool=False):
+def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0,
+              include_master_nodes: bool=False, dry_run: bool=False, disable_scale_down: bool=False):
     api = get_kube_api()
 
     all_nodes = get_nodes(api, include_master_nodes)
     region = list(all_nodes.values())[0]['region']
     autoscaling = boto3.client('autoscaling', region)
     nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes)
+
     # we only consider nodes found in an ASG (old "ghost" nodes returned from Kubernetes API are ignored)
     nodes_by_name = get_nodes_by_name(itertools.chain(*nodes_by_asg_zone.values()))
 
     pods = pykube.Pod.objects(api, namespace=pykube.all)
 
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
-    asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed, buffer_spare_nodes)
+    asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed,
+                                                           buffer_spare_nodes=buffer_spare_nodes, disable_scale_down=disable_scale_down)
     asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
@@ -382,6 +393,7 @@ def main():
                         default=os.getenv('BUFFER_SPARE_NODES', 1))
     parser.add_argument('--enable-healthcheck-endpoint', help='Enable Healtcheck',
                         action='store_true')
+    parser.add_argument('--no-scale-down', help='Disable scaling down', action='store_true')
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
                             help='{} buffer %%'.format(resource.capitalize()),
@@ -410,8 +422,8 @@ def main():
     while True:
         try:
             autoscale(buffer_percentage, buffer_fixed, buffer_spare_nodes=args.buffer_spare_nodes,
-                      include_master_nodes=args.include_master_nodes, dry_run=args.dry_run)
-        except:
+                      include_master_nodes=args.include_master_nodes, dry_run=args.dry_run, disable_scale_down=args.no_scale_down)
+        except Exception:
             global Healthy
             Healthy = False
             logger.exception('Failed to autoscale')

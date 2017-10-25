@@ -71,6 +71,13 @@ def test_calculate_required_auto_scaling_group_sizes():
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}, buffer_spare_nodes=2) == {'a1': 2}
 
 
+def test_calculate_required_auto_scaling_group_sizes_no_scaledown():
+    nodes = [{'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': False, 'master': False},
+             {'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': False, 'master': False}]
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): nodes}, {}, {}, {}) == {'a1': 0}
+    assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): nodes}, {}, {}, {}, disable_scale_down=True) == {'a1': 2}
+
+
 def test_calculate_required_auto_scaling_group_sizes_cordon():
     node = {'name': 'mynode', 'allocatable': {'cpu': 1, 'memory': 1, 'pods': 1}, 'unschedulable': True, 'master': False, 'asg_lifecycle_state': 'InService'}
     assert calculate_required_auto_scaling_group_sizes({('a1', 'z1'): [node]}, {}, {}, {}) == {'a1': 1}
@@ -363,7 +370,10 @@ def test_main(monkeypatch):
     monkeypatch.setattr('kube_aws_autoscaler.main.autoscale', autoscale)
     monkeypatch.setattr('sys.argv', ['foo', '--once', '--dry-run'])
     main()
-    autoscale.assert_called_once_with({'memory': 10, 'pods': 10, 'cpu': 10}, {'memory': 209715200, 'pods': 10, 'cpu': 0.2}, buffer_spare_nodes=1, include_master_nodes=False, dry_run=True)
+    autoscale.assert_called_once_with(
+        {'memory': 10, 'pods': 10, 'cpu': 10},
+        {'memory': 209715200, 'pods': 10, 'cpu': 0.2},
+        buffer_spare_nodes=1, include_master_nodes=False, dry_run=True, disable_scale_down=False)
 
     autoscale.side_effect = ValueError
 
