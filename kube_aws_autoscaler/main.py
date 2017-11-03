@@ -126,8 +126,8 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
 
     nodes_by_asg_zone = collections.defaultdict(list)
 
-    for instance_ids in chunks(list(instances.keys()), DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT):
-        response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instances.keys()))
+    for instance_ids in chunks(list(sorted(instances.keys())), DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT):
+        response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instance_ids))
         for instance in response['AutoScalingInstances']:
             instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
             instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
