@@ -103,6 +103,26 @@ def test_get_nodes_by_asg_zone():
     assert get_nodes_by_asg_zone(autoscaling, {'foo': {'instance_id': 'i-1'}}) == expected_result
 
 
+def test_get_nodes_by_asg_zone_chunked():
+
+    def describe_auto_scaling_instances(InstanceIds):
+        # AWS API only supports chunks of 50
+        assert len(InstanceIds) <= 50
+        return {'AutoScalingInstances': list([
+            {'InstanceId': instance_id, 'AutoScalingGroupName': 'myasg', 'AvailabilityZone': 'myaz', 'LifecycleState': 'InService'} for instance_id in InstanceIds
+        ])}
+
+    autoscaling = MagicMock()
+    autoscaling.describe_auto_scaling_instances = describe_auto_scaling_instances
+    expected_result = {('myasg', 'myaz'): []}
+    nodes = {}
+    for i in range(51):
+        nodes['node-{:02d}'.format(i)] = {'instance_id': 'i-{:02d}'.format(i)}
+        expected_result[('myasg', 'myaz')].append({'asg_name': 'myasg', 'instance_id': 'i-{:02d}'.format(i), 'asg_lifecycle_state': 'InService'})
+    actual_result = get_nodes_by_asg_zone(autoscaling, nodes)
+    assert actual_result == expected_result
+
+
 def test_resize_auto_scaling_groups_empty():
     autoscaling = MagicMock()
     autoscaling.describe_auto_scaling_groups.return_value = {'AutoScalingGroups': []}
