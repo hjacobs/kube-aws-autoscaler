@@ -442,4 +442,4 @@ def test_start_health_endpoint():
     flask = app.test_client()
     flask.testing = True
     response = flask.get('/healthz')
-    assert response.status_code == 500
+    assert response.status_code == 503
