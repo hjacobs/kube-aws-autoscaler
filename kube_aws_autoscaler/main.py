@@ -350,11 +350,11 @@ def is_healthy():
     if Healthy:
         return jsonify({'status': 'OK'})
     else:
-        return jsonify({'status': 'UNHEALTHY'}), 500
+        return jsonify({'status': 'UNHEALTHY'}), 503
 
 
 def start_health_endpoint():
-    app.run(port=5000)
+    app.run(host='0.0.0.0', port=5000)
 
 
 def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0,
@@ -416,7 +416,7 @@ def main():
         logger.info('**DRY-RUN**: no autoscaling will be performed!')
 
     if args.enable_healthcheck_endpoint:
-        t = Thread(target=start_health_endpoint)
+        t = Thread(target=start_health_endpoint, daemon=True)
         t.start()
 
     while True:
