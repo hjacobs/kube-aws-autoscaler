@@ -96,7 +96,7 @@ The following command line options are supported:
 ``--buffer-pods-percentage``
     Extra pods requests % to add to calculation, defaults to 10%.
 ``--buffer-cpu-fixed``
-    Extra CPU requests to add to calculation, defaults to 1 (core).
+    Extra CPU requests to add to calculation, defaults to 200m.
 ``--buffer-memory-fixed``
     Extra memory requests to add to calculation, defaults to 200Mi.
 ``--buffer-pods-fixed``
