@@ -61,6 +61,18 @@ def test_calculate_usage_by_asg_zone():
     nodes = {}
     assert calculate_usage_by_asg_zone([pod], nodes) == {}
 
+    # failed pod, should be included in the calculations
+    pod = MagicMock()
+    pod.name = 'mypod'
+    pod.obj = {'status': {'phase': 'Failed'}, 'spec': {'nodeName': 'foo', 'containers': [{'name': 'mycont', 'resources': {'requests': {'cpu': '1m'}}}]}}
+    assert calculate_usage_by_asg_zone([pod], {}) == {('unknown', 'unknown'): {'cpu': 1/1000, 'memory': 52428800, 'pods': 1}}
+
+    # failed pod that won't be restarted, should not be included in the calculations
+    pod = MagicMock()
+    pod.name = 'mypod'
+    pod.obj = {'status': {'phase': 'Failed'}, 'spec': {'nodeName': 'foo', 'restartPolicy': 'Never', 'containers': [{'name': 'mycont', 'resources': {'requests': {'cpu': '1m'}}}]}}
+    assert calculate_usage_by_asg_zone([pod], {}) == {}
+
 
 def test_calculate_required_auto_scaling_group_sizes():
     assert calculate_required_auto_scaling_group_sizes({}, {}, {}, {}) == {}

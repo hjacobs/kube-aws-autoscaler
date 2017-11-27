@@ -144,6 +144,10 @@ def calculate_usage_by_asg_zone(pods: list, nodes: dict) -> dict:
         if phase == 'Succeeded':
             # ignore completed jobs
             continue
+        elif phase == 'Failed' and pod.obj['spec'].get('restartPolicy') == 'Never':
+            # ignore pods that won't be restarted
+            continue
+
         node_name = pod.obj['spec'].get('nodeName')
         node = nodes.get(node_name)
         if node:
