@@ -202,7 +202,7 @@ def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
         amount_of_downscale = node_counts_by_asg[asg_name] - desired_size
         if amount_of_downscale >= 2:
             new_desired_size = node_counts_by_asg[asg_name] - 1
-            logger.info('Slowing down downscale: changing desired size of ASG {} from {} to {}'.format(asg_name, desired_size, new_desired_size))
+            logger.info('Slowing down downscale: changing desired size of ASG (current size is {}) {} from {} to {}'.format(asg_name, node_counts_by_asg[asg_name], desired_size, new_desired_size))
             asg_sizes[asg_name] = new_desired_size
 
     return asg_sizes
