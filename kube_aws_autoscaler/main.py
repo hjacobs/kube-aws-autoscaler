@@ -429,7 +429,7 @@ def main():
                         help='Scale down strategy expressed in terms of instances count, defaults to 1. Note: value must be >= 1',
                         type=int, default=os.getenv('SCALE_DOWN_STEP_FIXED', 1))
     parser.add_argument('--scale-down-step-percentage',
-                        help='Scale down strategy expressed in terms of instances count, defaults to 0.00, i.e. 0%.',
+                        help='Scale down strategy expressed in terms of instances count, defaults to 0.00, i.e. 0%%.',
                         type=float, default=os.getenv('SCALE_DOWN_STEP_PRECENTAGE', 0.0))
 
     args = parser.parse_args()
