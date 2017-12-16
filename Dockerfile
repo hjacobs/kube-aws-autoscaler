@@ -1,4 +1,4 @@
-FROM alpine:3.6
+FROM alpine:3.7
 MAINTAINER Henning Jacobs <henning@jacobs1.de>
 
 RUN apk add --no-cache python3 ca-certificates && \
