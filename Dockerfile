@@ -8,7 +8,6 @@ RUN apk add --no-cache python3 ca-certificates && \
 WORKDIR /
 
 COPY kube_aws_autoscaler /kube_aws_autoscaler
-COPY scm-source.json /
 
 ARG VERSION=dev
 RUN sed -i "s/__version__ = .*/__version__ = '${VERSION}'/" /kube_aws_autoscaler/__init__.py
