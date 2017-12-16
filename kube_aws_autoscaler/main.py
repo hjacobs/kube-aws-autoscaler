@@ -208,15 +208,17 @@ def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict, scale_down_ste
         node_counts_by_asg[asg_name] += len(nodes)
 
     for asg_name, desired_size in sorted(asg_sizes.items()):
-        amount_of_downscale = node_counts_by_asg[asg_name] - desired_size
+        current_size = node_counts_by_asg[asg_name]
+        amount_of_downscale = current_size - desired_size
         if amount_of_downscale >= 2:
-            new_desired_size_fixed = node_counts_by_asg[asg_name] - scale_down_step_fixed
-            new_desired_size_percentage = max(desired_size, int(math.ceil((1.00 - scale_down_step_percentage) * node_counts_by_asg[asg_name])))
-            if new_desired_size_percentage == node_counts_by_asg[asg_name]:
+            new_desired_size_fixed = current_size - scale_down_step_fixed
+            new_desired_size_percentage = max(desired_size, int(math.ceil((1.00 - scale_down_step_percentage) * current_size)))
+            if new_desired_size_percentage >= current_size:
+                # percentage amount is too small, make sure we downscale by fixed amount at least
                 new_desired_size_percentage = new_desired_size_fixed
             new_desired_size = min(new_desired_size_fixed, new_desired_size_percentage)
-
-            logger.info('Slowing down downscale: changing desired size of ASG {} from {} to {}'.format(asg_name, desired_size, new_desired_size))
+            logger.info('Slowing down downscale: changing desired size of ASG {} (current size is {}) from {} to {}'.format(
+                        asg_name, current_size, desired_size, new_desired_size))
             asg_sizes[asg_name] = new_desired_size
 
     return asg_sizes
