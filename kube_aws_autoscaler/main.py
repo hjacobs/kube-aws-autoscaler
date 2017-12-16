@@ -4,6 +4,7 @@ import argparse
 import collections
 import itertools
 import logging
+import math
 import os
 import re
 import time
@@ -192,7 +193,15 @@ def format_resource(value: float, resource: str):
     return '{:.0f}'.format(value)
 
 
-def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
+def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict, scale_down_step_fixed: int, scale_down_step_percentage: float):
+    # validate scale-down-step-fixed, must be >= 1
+    if scale_down_step_fixed < 1:
+        raise ValueError('scale-down-step-fixed must be >= 1')
+
+    # validate scale-down-step-percentage, must be 0 <= value < 1
+    if scale_down_step_percentage < 0 or scale_down_step_percentage >= 1:
+        raise ValueError('scale-down-step-precentage value must be: 0 < value <= 1')
+
     node_counts_by_asg = collections.defaultdict(int)
     for key, nodes in sorted(nodes_by_asg_zone.items()):
         asg_name, zone = key
@@ -201,7 +210,12 @@ def slow_down_downscale(asg_sizes: dict, nodes_by_asg_zone: dict):
     for asg_name, desired_size in sorted(asg_sizes.items()):
         amount_of_downscale = node_counts_by_asg[asg_name] - desired_size
         if amount_of_downscale >= 2:
-            new_desired_size = node_counts_by_asg[asg_name] - 1
+            new_desired_size_fixed = node_counts_by_asg[asg_name] - scale_down_step_fixed
+            new_desired_size_percentage = max(desired_size, int(math.ceil((1.00 - scale_down_step_percentage) * node_counts_by_asg[asg_name])))
+            if new_desired_size_percentage == node_counts_by_asg[asg_name]:
+                new_desired_size_percentage = new_desired_size_fixed
+            new_desired_size = min(new_desired_size_fixed, new_desired_size_percentage)
+
             logger.info('Slowing down downscale: changing desired size of ASG {} from {} to {}'.format(asg_name, desired_size, new_desired_size))
             asg_sizes[asg_name] = new_desired_size
 
@@ -361,8 +375,10 @@ def start_health_endpoint():
     app.run(host='0.0.0.0', port=5000)
 
 
-def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: int=0,
-              include_master_nodes: bool=False, dry_run: bool=False, disable_scale_down: bool=False):
+def autoscale(buffer_percentage: dict, buffer_fixed: dict,
+              scale_down_step_fixed: int, scale_down_step_percentage: float,
+              buffer_spare_nodes: int = 0, include_master_nodes: bool=False,
+              dry_run: bool=False, disable_scale_down: bool=False):
     api = get_kube_api()
 
     all_nodes = get_nodes(api, include_master_nodes)
@@ -378,7 +394,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict, buffer_spare_nodes: i
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed,
                                                            buffer_spare_nodes=buffer_spare_nodes, disable_scale_down=disable_scale_down)
-    asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone)
+    asg_size = slow_down_downscale(asg_size, nodes_by_asg_zone, scale_down_step_fixed, scale_down_step_percentage)
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
 
@@ -398,6 +414,7 @@ def main():
     parser.add_argument('--enable-healthcheck-endpoint', help='Enable Healtcheck',
                         action='store_true')
     parser.add_argument('--no-scale-down', help='Disable scaling down', action='store_true')
+
     for resource in RESOURCES:
         parser.add_argument('--buffer-{}-percentage'.format(resource), type=float,
                             help='{} buffer %%'.format(resource.capitalize()),
@@ -405,7 +422,25 @@ def main():
         parser.add_argument('--buffer-{}-fixed'.format(resource), type=str,
                             help='{} buffer (fixed amount)'.format(resource.capitalize()),
                             default=os.getenv('BUFFER_{}_FIXED'.format(resource.upper()), DEFAULT_BUFFER_FIXED[resource]))
+
+    parser.add_argument('--scale-down-step-fixed',
+                        help='Scale down strategy expressed in terms of instances count, defaults to 1. Note: value must be >= 1',
+                        type=int, default=os.getenv('SCALE_DOWN_STEP_FIXED', 1))
+    parser.add_argument('--scale-down-step-percentage',
+                        help='Scale down strategy expressed in terms of instances count, defaults to 0.00, i.e. 0%.',
+                        type=float, default=os.getenv('SCALE_DOWN_STEP_PRECENTAGE', 0.0))
+
     args = parser.parse_args()
+
+    # validate scale-down-step values
+    if args.scale_down_step_fixed < 1:
+        msg = 'Invalid scale-down-step-fixed value: {}'.format(args.scale_down_step_fixed)
+        logger.exception(msg)
+        raise ValueError(msg)
+    if args.scale_down_step_percentage < 0 or args.scale_down_step_percentage > 1:
+        msg = 'Invalid scale-down-step-percentage value: {}'.format(args.scale_down_step_percentage)
+        logger.exception(msg)
+        raise ValueError(msg)
 
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
     logging.getLogger('botocore').setLevel(logging.WARN)
@@ -425,8 +460,12 @@ def main():
 
     while True:
         try:
-            autoscale(buffer_percentage, buffer_fixed, buffer_spare_nodes=args.buffer_spare_nodes,
-                      include_master_nodes=args.include_master_nodes, dry_run=args.dry_run, disable_scale_down=args.no_scale_down)
+            autoscale(buffer_percentage, buffer_fixed,
+                      scale_down_step_fixed=args.scale_down_step_fixed,
+                      scale_down_step_percentage=args.scale_down_step_percentage,
+                      buffer_spare_nodes=args.buffer_spare_nodes,
+                      include_master_nodes=args.include_master_nodes, dry_run=args.dry_run,
+                      disable_scale_down=args.no_scale_down)
         except Exception:
             global Healthy
             Healthy = False

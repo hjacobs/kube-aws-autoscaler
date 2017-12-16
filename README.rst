@@ -109,6 +109,10 @@ The following command line options are supported:
     Time to sleep between runs in seconds, defaults to 60 seconds.
 ``--once``
     Only run once and exit (useful for debugging).
+``--scale-down-step-fixed``
+    Scale down step in terms of node count, defaults to 1.
+``--scale-down-step-percentage``
+    Scale down step in terms of node percentage (1.0 is 100%), defaults to 0%
 
 
 .. _"official" cluster-autoscaler: https://github.com/kubernetes/autoscaler

@@ -1,4 +1,5 @@
 import sys
+import io
 
 from setuptools import find_packages, setup
 from setuptools.command.test import test as TestCommand
@@ -40,7 +41,7 @@ class PyTest(TestCommand):
 
 
 def readme():
-    return open('README.rst', encoding='utf-8').read()
+    return io.open('README.rst', encoding='utf-8').read()
 
 
 tests_require = [
