@@ -116,4 +116,4 @@ The following command line options are supported:
 
 
 .. _"official" cluster-autoscaler: https://github.com/kubernetes/autoscaler
-.. _allocatable capacity: https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
+.. _allocatable capacity: https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node/node-allocatable.md
