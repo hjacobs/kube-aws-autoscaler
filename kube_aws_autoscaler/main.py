@@ -460,6 +460,7 @@ def main():
         t = Thread(target=start_health_endpoint, daemon=True)
         t.start()
 
+    global Healthy
     while True:
         try:
             autoscale(buffer_percentage, buffer_fixed,
@@ -468,8 +469,8 @@ def main():
                       buffer_spare_nodes=args.buffer_spare_nodes,
                       include_master_nodes=args.include_master_nodes, dry_run=args.dry_run,
                       disable_scale_down=args.no_scale_down)
+            Healthy = True
         except Exception:
-            global Healthy
             Healthy = False
             logger.exception('Failed to autoscale')
         if args.once:

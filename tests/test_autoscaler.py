@@ -10,6 +10,7 @@ from kube_aws_autoscaler.main import (apply_buffer, autoscale,
                                       resize_auto_scaling_groups,
                                       scaling_activity_in_progress,
                                       slow_down_downscale, app)
+import kube_aws_autoscaler.main
 
 
 def test_parse_resource():
@@ -511,3 +512,11 @@ def test_start_health_endpoint():
     flask.testing = True
     response = flask.get('/healthz')
     assert response.status_code == 503
+
+def test_endpoint_healthy_state(monkeypatch):
+    kube_aws_autoscaler.main.Healthy = False
+    autoscale = MagicMock()
+    monkeypatch.setattr('kube_aws_autoscaler.main.autoscale', autoscale)
+    monkeypatch.setattr('sys.argv', ['foo', '--once', '--dry-run'])
+    main()
+    assert kube_aws_autoscaler.main.Healthy == True
