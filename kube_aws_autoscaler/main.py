@@ -101,7 +101,14 @@ def get_nodes(api, include_master_nodes: bool=False) -> dict:
         # https://github.com/kubernetes/community/blob/master/contributors/design-proposals/node-allocatable.md
         for key, val in node.obj['status']['allocatable'].items():
             allocatable[key] = parse_resource(val)
-        instance_id = node.obj['spec']['externalID']
+
+        instance_id = ""
+
+        if int(node.obj['status']['nodeInfo']['kubeletVersion'].split(".")[1]) < 11:
+            instance_id = node.obj['spec']['externalID']
+        else:
+            instance_id = node.obj['spec']['providerID'].split("/")[4]
+
         obj = {'name': node.name,
                'region': region, 'zone': zone, 'instance_id': instance_id, 'instance_type': instance_type,
                'allocatable': allocatable,
